@@ -40,9 +40,11 @@ brew upgrade codex-remote
 brew reinstall codex-remote
 ```
 
-A bare `brew install codex-remote` on a clean Mac is available only after the
-Formula is accepted into an official Homebrew repository. Before that point,
-users can trust and tap `codex-remote/tap` once and then use the short name.
+A bare `brew install codex-remote` on a clean Mac is a later official Homebrew
+Cask milestone. The Runtime is distributed as closed-source binaries, so it is
+not eligible for `homebrew/core`, whose Formulae must be open source. Before an
+official Cask is accepted, users must trust and install the third-party Tap
+Formula once; short-name upgrades then work on that machine.
 
 ## Command responsibilities
 
