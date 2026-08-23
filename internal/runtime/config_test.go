@@ -33,11 +33,14 @@ func TestConfigRoundTrip(t *testing.T) {
 }
 
 func TestRenderedPlistContainsNoCredentialFields(t *testing.T) {
-	contents := renderPlist("com.codex-remote.relay", "/opt/homebrew/bin/codex-remote", []string{"service-run", "relay"}, "/state", "/logs/out", "/logs/err")
+	contents := renderPlist("com.codex-remote.relay", "/opt/homebrew/bin/codex-remote", []string{"service-run", "relay"}, "/state", "/logs/out", "/logs/err", map[string]string{"CODEX_REMOTE_HOME": "/state"})
 	for _, forbidden := range []string{"RUNTIME_DATABASE_URL", "requirepass", "postgres-password", "valkey-password"} {
 		if contains(contents, forbidden) {
 			t.Fatalf("plist contains secret-related field %q", forbidden)
 		}
+	}
+	if !contains(contents, "CODEX_REMOTE_HOME") || !contains(contents, "/state") {
+		t.Fatal("plist does not persist the runtime state directory")
 	}
 }
 

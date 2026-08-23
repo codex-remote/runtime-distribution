@@ -23,7 +23,8 @@ func writeLaunchAgents(paths Paths, layout Layout) error {
 	for _, service := range services {
 		label := serviceLabel(service)
 		contents := renderPlist(label, layout.CLI, []string{"service-run", service}, paths.StateDir,
-			filepath.Join(paths.LogDir, service+".stdout.log"), filepath.Join(paths.LogDir, service+".stderr.log"))
+			filepath.Join(paths.LogDir, service+".stdout.log"), filepath.Join(paths.LogDir, service+".stderr.log"),
+			map[string]string{"CODEX_REMOTE_HOME": paths.StateDir})
 		path := plistPath(paths, service)
 		if err := os.WriteFile(path, []byte(contents), 0o644); err != nil {
 			return fmt.Errorf("write %s: %w", path, err)
@@ -32,11 +33,19 @@ func writeLaunchAgents(paths Paths, layout Layout) error {
 	return nil
 }
 
-func renderPlist(label, program string, arguments []string, workingDirectory, stdout, stderr string) string {
+func renderPlist(label, program string, arguments []string, workingDirectory, stdout, stderr string, environment map[string]string) string {
 	var argumentXML strings.Builder
 	argumentXML.WriteString("    <string>" + html.EscapeString(program) + "</string>\n")
 	for _, argument := range arguments {
 		argumentXML.WriteString("    <string>" + html.EscapeString(argument) + "</string>\n")
+	}
+	var environmentXML strings.Builder
+	if len(environment) != 0 {
+		environmentXML.WriteString("  <key>EnvironmentVariables</key>\n  <dict>\n")
+		for key, value := range environment {
+			environmentXML.WriteString("    <key>" + html.EscapeString(key) + "</key><string>" + html.EscapeString(value) + "</string>\n")
+		}
+		environmentXML.WriteString("  </dict>\n")
 	}
 	return fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -47,7 +56,7 @@ func renderPlist(label, program string, arguments []string, workingDirectory, st
   <array>
 %s  </array>
   <key>WorkingDirectory</key><string>%s</string>
-  <key>RunAtLoad</key><true/>
+%s  <key>RunAtLoad</key><true/>
   <key>KeepAlive</key>
   <dict><key>SuccessfulExit</key><false/></dict>
   <key>ThrottleInterval</key><integer>5</integer>
@@ -55,5 +64,5 @@ func renderPlist(label, program string, arguments []string, workingDirectory, st
   <key>StandardErrorPath</key><string>%s</string>
 </dict>
 </plist>
-`, html.EscapeString(label), argumentXML.String(), html.EscapeString(workingDirectory), html.EscapeString(stdout), html.EscapeString(stderr))
+`, html.EscapeString(label), argumentXML.String(), html.EscapeString(workingDirectory), environmentXML.String(), html.EscapeString(stdout), html.EscapeString(stderr))
 }
