@@ -1,0 +1,5 @@
+Codex Remote includes third-party Go modules and JavaScript packages used by
+Relay Server, Mac Agent, Mobile Web Gateway, and Mobile Web. Their package
+names and license texts must be generated and reviewed by release CI before a
+public stable release. This placeholder intentionally blocks representing the
+current local archive as legally release-ready.
