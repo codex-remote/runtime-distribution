@@ -5,9 +5,22 @@ assembly, compatibility manifest, installation tests, and Homebrew metadata
 update flow. It consumes versioned outputs from the independent Relay Server,
 Mac Agent, and Mobile Web repositories; it does not import their source.
 
-## User installation
+## Current release status
 
-The third-party Tap installation is:
+Runtime `0.2.0` has passed local Apple Silicon Homebrew acceptance, including
+isolated PostgreSQL 17, bundled Valkey 9.1.1, occupied default ports, all five
+LaunchAgents, `doctor --json`, Mac Agent connectivity, and QR generation. It is
+not yet a public release: the GitHub repositories, immutable tags and Release
+assets, Developer ID signing, Apple notarization, complete third-party notices,
+and clean-Mac upgrade/rollback acceptance are still required.
+
+The local archive is release-candidate evidence only. Do not publish a Formula
+that points to a local `file://` URL or describe `0.2.0` as generally available
+until every stable release gate below has passed.
+
+## User installation after publication
+
+The third-party Tap installation will be:
 
 ```bash
 brew trust --formula codex-remote/tap/codex-remote
