@@ -28,9 +28,7 @@ func runService(service string) error {
 	}
 	switch service {
 	case "postgres":
-		return execReplace(config.Toolchain.Postgres, []string{
-			"postgres", "-D", paths.PostgresData, "-h", "127.0.0.1", "-p", strconv.Itoa(config.Ports.Postgres),
-		}, os.Environ())
+		return execReplace(config.Toolchain.Postgres, postgresArguments(config, paths), os.Environ())
 	case "valkey":
 		ctx := context.Background()
 		password, err := readSecret(ctx, valkeySecretService)
@@ -100,6 +98,13 @@ func runService(service string) error {
 		}, os.Environ())
 	default:
 		return fmt.Errorf("unknown internal service %q", service)
+	}
+}
+
+func postgresArguments(config Config, paths Paths) []string {
+	return []string{
+		config.Toolchain.Postgres, "-D", paths.PostgresData,
+		"-h", "127.0.0.1", "-p", strconv.Itoa(config.Ports.Postgres),
 	}
 }
 
