@@ -28,7 +28,7 @@ func runService(service string) error {
 	}
 	switch service {
 	case "postgres":
-		return execReplace(config.Toolchain.Postgres, postgresArguments(config, paths), os.Environ())
+		return execReplace(config.Toolchain.Postgres, postgresArguments(config, paths), postgresEnvironment())
 	case "valkey":
 		ctx := context.Background()
 		password, err := readSecret(ctx, valkeySecretService)
@@ -106,6 +106,16 @@ func postgresArguments(config Config, paths Paths) []string {
 		config.Toolchain.Postgres, "-D", paths.PostgresData,
 		"-h", "127.0.0.1", "-p", strconv.Itoa(config.Ports.Postgres),
 	}
+}
+
+func postgresEnvironment() []string {
+	environment := make([]string, 0, len(os.Environ())+1)
+	for _, value := range os.Environ() {
+		if !strings.HasPrefix(value, "LC_ALL=") {
+			environment = append(environment, value)
+		}
+	}
+	return append(environment, "LC_ALL=C")
 }
 
 func execReplace(binary string, arguments, environment []string) error {
