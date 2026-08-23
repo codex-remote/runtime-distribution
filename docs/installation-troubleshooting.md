@@ -24,8 +24,10 @@ owner yourself or explicitly purge and create a new installation.
 
 ## PostgreSQL or Valkey already runs
 
-This is supported. Homebrew dependencies supply executables only; Codex Remote
-does not use `brew services` or the user's clusters. Its data lives below
+This is supported. Homebrew supplies the PostgreSQL executable, while the
+Runtime contains a pinned Valkey executable so installing Codex Remote never
+requires unlinking an existing Redis or Valkey package. Codex Remote does not
+use `brew services` or the user's clusters. Its data lives below
 `~/Library/Application Support/CodexRemote/Data` with separate persisted ports.
 
 ## Setup was interrupted

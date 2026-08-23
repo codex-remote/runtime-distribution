@@ -35,8 +35,6 @@ class CodexRemote < Formula
   depends_on arch: :arm64
   depends_on :macos
   depends_on "postgresql@17"
-  depends_on "valkey"
-
   def install
     bin.install Dir["bin/*"]
     pkgshare.install "manifest.json", "THIRD_PARTY_NOTICES", "LICENSES"

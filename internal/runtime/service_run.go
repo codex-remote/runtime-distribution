@@ -48,7 +48,7 @@ func runService(service string) error {
 			"requirepass " + password,
 			"",
 		}, "\n")
-		return runChildWithInput(config.Toolchain.ValkeyServer, []string{"-"}, configuration)
+		return runChildWithInput(layout.ValkeyServer, []string{"-"}, configuration)
 	case "relay":
 		postgresPassword, err := readSecret(context.Background(), postgresSecretService)
 		if err != nil {

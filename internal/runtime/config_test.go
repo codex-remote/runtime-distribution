@@ -18,7 +18,7 @@ func TestConfigRoundTrip(t *testing.T) {
 		CodexVersion:   "codex-cli 1.2.3",
 		WorkspaceRoots: []string{"/work/a", "/work/b"},
 		Ports:          defaultPorts,
-		Toolchain:      Toolchain{InitDB: "/opt/initdb", ValkeyServer: "/opt/valkey-server"},
+		Toolchain:      Toolchain{InitDB: "/opt/initdb"},
 	}
 	if err := saveConfig(paths, want); err != nil {
 		t.Fatal(err)

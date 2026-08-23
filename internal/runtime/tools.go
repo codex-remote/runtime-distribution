@@ -19,25 +19,19 @@ func discoverToolchain(ctx context.Context) (Toolchain, error) {
 	if err != nil {
 		return Toolchain{}, fmt.Errorf("PostgreSQL 17 is required: %w", err)
 	}
-	valkeyBin, err := formulaBin(ctx, "valkey", "valkey-server")
-	if err != nil {
-		return Toolchain{}, fmt.Errorf("Valkey is required: %w", err)
-	}
 	toolchain := Toolchain{
-		InitDB:       filepath.Join(postgresBin, "initdb"),
-		Postgres:     filepath.Join(postgresBin, "postgres"),
-		PGIsReady:    filepath.Join(postgresBin, "pg_isready"),
-		Createdb:     filepath.Join(postgresBin, "createdb"),
-		Dropdb:       filepath.Join(postgresBin, "dropdb"),
-		PGDump:       filepath.Join(postgresBin, "pg_dump"),
-		PGRestore:    filepath.Join(postgresBin, "pg_restore"),
-		PSQL:         filepath.Join(postgresBin, "psql"),
-		ValkeyServer: filepath.Join(valkeyBin, "valkey-server"),
-		ValkeyCLI:    filepath.Join(valkeyBin, "valkey-cli"),
+		InitDB:    filepath.Join(postgresBin, "initdb"),
+		Postgres:  filepath.Join(postgresBin, "postgres"),
+		PGIsReady: filepath.Join(postgresBin, "pg_isready"),
+		Createdb:  filepath.Join(postgresBin, "createdb"),
+		Dropdb:    filepath.Join(postgresBin, "dropdb"),
+		PGDump:    filepath.Join(postgresBin, "pg_dump"),
+		PGRestore: filepath.Join(postgresBin, "pg_restore"),
+		PSQL:      filepath.Join(postgresBin, "psql"),
 	}
 	for _, path := range []string{
 		toolchain.InitDB, toolchain.Postgres, toolchain.PGIsReady, toolchain.Createdb,
-		toolchain.Dropdb, toolchain.PGDump, toolchain.PGRestore, toolchain.PSQL, toolchain.ValkeyServer, toolchain.ValkeyCLI,
+		toolchain.Dropdb, toolchain.PGDump, toolchain.PGRestore, toolchain.PSQL,
 	} {
 		if _, err := resolveExecutable(path); err != nil {
 			return Toolchain{}, fmt.Errorf("required dependency executable is unavailable at %s: %w", path, err)
@@ -79,6 +73,9 @@ func findAvailablePort(preferred int, used map[int]bool) (int, error) {
 	for offset := 0; offset < 1000; offset++ {
 		candidate := preferred + offset
 		if candidate > 65535 || used[candidate] {
+			continue
+		}
+		if portListening(candidate) {
 			continue
 		}
 		listener, err := net.Listen("tcp4", "0.0.0.0:"+strconv.Itoa(candidate))

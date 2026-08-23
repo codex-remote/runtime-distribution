@@ -8,13 +8,15 @@ import (
 )
 
 type Layout struct {
-	CLI       string
-	Relay     string
-	Relayctl  string
-	PairQR    string
-	MacAgent  string
-	Gateway   string
-	MobileWeb string
+	CLI          string
+	Relay        string
+	Relayctl     string
+	PairQR       string
+	MacAgent     string
+	Gateway      string
+	ValkeyServer string
+	ValkeyCLI    string
+	MobileWeb    string
 }
 
 func resolveLayout() (Layout, error) {
@@ -40,13 +42,15 @@ func resolveLayout() (Layout, error) {
 		}
 	}
 	layout := Layout{
-		CLI:       cli,
-		Relay:     filepath.Join(binDir, "relay-server"),
-		Relayctl:  filepath.Join(binDir, "relayctl"),
-		PairQR:    filepath.Join(binDir, "pairqr"),
-		MacAgent:  filepath.Join(binDir, "mac-agent"),
-		Gateway:   filepath.Join(binDir, "mobile-web-gateway"),
-		MobileWeb: staticDir,
+		CLI:          cli,
+		Relay:        filepath.Join(binDir, "relay-server"),
+		Relayctl:     filepath.Join(binDir, "relayctl"),
+		PairQR:       filepath.Join(binDir, "pairqr"),
+		MacAgent:     filepath.Join(binDir, "mac-agent"),
+		Gateway:      filepath.Join(binDir, "mobile-web-gateway"),
+		ValkeyServer: filepath.Join(binDir, "codex-remote-valkey-server"),
+		ValkeyCLI:    filepath.Join(binDir, "codex-remote-valkey-cli"),
+		MobileWeb:    staticDir,
 	}
 	return layout, nil
 }
@@ -64,12 +68,14 @@ func stableCLIPath(resolved string) string {
 
 func (layout Layout) validate() error {
 	for label, path := range map[string]string{
-		"Codex Remote CLI":   layout.CLI,
-		"Relay Server":       layout.Relay,
-		"relayctl":           layout.Relayctl,
-		"pairqr":             layout.PairQR,
-		"Mac Agent":          layout.MacAgent,
-		"Mobile Web Gateway": layout.Gateway,
+		"Codex Remote CLI":      layout.CLI,
+		"Relay Server":          layout.Relay,
+		"relayctl":              layout.Relayctl,
+		"pairqr":                layout.PairQR,
+		"Mac Agent":             layout.MacAgent,
+		"Mobile Web Gateway":    layout.Gateway,
+		"Bundled Valkey Server": layout.ValkeyServer,
+		"Bundled Valkey CLI":    layout.ValkeyCLI,
 	} {
 		if _, err := resolveExecutable(path); err != nil {
 			return fmt.Errorf("%s is missing or not executable at %s: %w", label, path, err)

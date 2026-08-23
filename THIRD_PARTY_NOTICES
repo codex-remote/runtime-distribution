@@ -3,3 +3,6 @@ Relay Server, Mac Agent, Mobile Web Gateway, and Mobile Web. Their package
 names and license texts must be generated and reviewed by release CI before a
 public stable release. This placeholder intentionally blocks representing the
 current local archive as legally release-ready.
+
+Valkey 9.1.1 is built from pinned source without TLS and with the system
+allocator. Its BSD 3-Clause license is included as LICENSES/Valkey-COPYING.

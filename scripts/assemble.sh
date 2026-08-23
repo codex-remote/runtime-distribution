@@ -42,6 +42,32 @@ trap 'rm -rf "${temporary_dir}"' EXIT
 build_dir="${temporary_dir}/bin"
 mkdir -p "${build_dir}"
 
+valkey_version="9.1.1"
+valkey_sha256="7d7232acd1b8a49b4e05d07a00b3ca8c801ae06ab633ca6a3423bc5f385ab7ee"
+valkey_archive="${VALKEY_SOURCE_ARCHIVE:-${temporary_dir}/valkey-${valkey_version}.tar.gz}"
+if [[ ! -f "${valkey_archive}" ]]; then
+  echo "Downloading pinned Valkey ${valkey_version} source..."
+  curl --fail --location --retry 3 \
+    "https://github.com/valkey-io/valkey/archive/refs/tags/${valkey_version}.tar.gz" \
+    --output "${valkey_archive}"
+fi
+actual_valkey_sha256="$(shasum -a 256 "${valkey_archive}" | awk '{print $1}')"
+if [[ "${actual_valkey_sha256}" != "${valkey_sha256}" ]]; then
+  echo "Valkey source checksum mismatch: ${actual_valkey_sha256}" >&2
+  exit 1
+fi
+mkdir -p "${temporary_dir}/valkey-source"
+tar -xzf "${valkey_archive}" -C "${temporary_dir}/valkey-source"
+echo "Building isolated Valkey runtime..."
+env -u CFLAGS -u CPPFLAGS -u LDFLAGS -u PKG_CONFIG_PATH \
+  make -C "${temporary_dir}/valkey-source/valkey-${valkey_version}" \
+  -j"$(sysctl -n hw.ncpu)" BUILD_TLS=no MALLOC=libc valkey-server
+env -u CFLAGS -u CPPFLAGS -u LDFLAGS -u PKG_CONFIG_PATH \
+  make -C "${temporary_dir}/valkey-source/valkey-${valkey_version}" \
+  -j"$(sysctl -n hw.ncpu)" BUILD_TLS=no MALLOC=libc valkey-cli
+cp "${temporary_dir}/valkey-source/valkey-${valkey_version}/src/valkey-server" "${build_dir}/codex-remote-valkey-server"
+cp "${temporary_dir}/valkey-source/valkey-${valkey_version}/src/valkey-cli" "${build_dir}/codex-remote-valkey-cli"
+
 echo "Building Relay Server tools..."
 (
   cd "${workspace_dir}/relay-server"
@@ -85,19 +111,24 @@ mkdir -p "${stage_dir}/bin" "${stage_dir}/share/mobile-web" "${stage_dir}/LICENS
 cp "${build_dir}/"* "${stage_dir}/bin/"
 cp -R "${workspace_dir}/mobile-web/dist/." "${stage_dir}/share/mobile-web/"
 cp "${repo_dir}/docs/BINARY-DISTRIBUTION-NOTICE" "${stage_dir}/LICENSES/"
+cp "${temporary_dir}/valkey-source/valkey-${valkey_version}/COPYING" "${stage_dir}/LICENSES/Valkey-COPYING"
 cp "${repo_dir}/THIRD_PARTY_NOTICES" "${stage_dir}/"
 
 relay_commit="$(git -C "${workspace_dir}/relay-server" rev-parse HEAD)"
 agent_commit="$(git -C "${workspace_dir}/mac-agent" rev-parse HEAD)"
 mobile_commit="$(git -C "${workspace_dir}/mobile-web" rev-parse HEAD)"
+distribution_commit="$(git -C "${repo_dir}" rev-parse HEAD)"
 codex_version="$(codex --version 2>/dev/null || true)"
 jq -n \
   --arg runtime_version "${version}" \
   --arg relay_commit "${relay_commit}" \
   --arg agent_commit "${agent_commit}" \
   --arg mobile_commit "${mobile_commit}" \
+  --arg distribution_commit "${distribution_commit}" \
+  --arg valkey_version "${valkey_version}" \
+  --arg valkey_sha256 "${valkey_sha256}" \
   --arg codex_version "${codex_version}" \
-  '{schemaVersion:1,runtimeVersion:$runtime_version,channel:"stable",components:{"relay-server":{commit:$relay_commit,tag:null},"mac-agent":{commit:$agent_commit,tag:null},"mobile-web":{commit:$mobile_commit,tag:null}},databaseSchema:2,platforms:["darwin-arm64"],codex:{minimumVersion:"0.148.0",maximumTestedVersion:$codex_version},artifacts:[]}' \
+  '{schemaVersion:1,runtimeVersion:$runtime_version,channel:"stable",components:{"runtime-distribution":{commit:$distribution_commit,tag:null},"relay-server":{commit:$relay_commit,tag:null},"mac-agent":{commit:$agent_commit,tag:null},"mobile-web":{commit:$mobile_commit,tag:null},"valkey":{version:$valkey_version,sourceSha256:$valkey_sha256,build:"darwin-arm64, non-TLS, libc"}},databaseSchema:2,platforms:["darwin-arm64"],codex:{minimumVersion:"0.148.0",maximumTestedVersion:$codex_version},artifacts:[]}' \
   > "${stage_dir}/manifest.json"
 
 source_epoch="${SOURCE_DATE_EPOCH:-$(git -C "${repo_dir}" log -1 --format=%ct 2>/dev/null || date +%s)}"

@@ -19,16 +19,14 @@ type Ports struct {
 }
 
 type Toolchain struct {
-	InitDB       string `json:"initdb"`
-	Postgres     string `json:"postgres"`
-	PGIsReady    string `json:"pgIsReady"`
-	Createdb     string `json:"createdb"`
-	Dropdb       string `json:"dropdb"`
-	PGDump       string `json:"pgDump"`
-	PGRestore    string `json:"pgRestore"`
-	PSQL         string `json:"psql"`
-	ValkeyServer string `json:"valkeyServer"`
-	ValkeyCLI    string `json:"valkeyCli"`
+	InitDB    string `json:"initdb"`
+	Postgres  string `json:"postgres"`
+	PGIsReady string `json:"pgIsReady"`
+	Createdb  string `json:"createdb"`
+	Dropdb    string `json:"dropdb"`
+	PGDump    string `json:"pgDump"`
+	PGRestore string `json:"pgRestore"`
+	PSQL      string `json:"psql"`
 }
 
 type Config struct {
