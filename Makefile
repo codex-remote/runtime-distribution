@@ -1,6 +1,7 @@
-VERSION ?= 0.2.0
+VERSION ?= 0.2.0-beta.1
+CHANNEL ?= beta
 
-.PHONY: build test vet assemble clean
+.PHONY: build test vet notices assemble clean
 
 build:
 	mkdir -p bin
@@ -12,8 +13,11 @@ test:
 vet:
 	go vet ./...
 
+notices:
+	./scripts/generate-third-party-notices.sh
+
 assemble: test vet
-	./scripts/assemble.sh $(VERSION)
+	./scripts/assemble.sh $(VERSION) $(CHANNEL)
 
 clean:
 	rm -rf bin dist

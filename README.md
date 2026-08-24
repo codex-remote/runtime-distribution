@@ -7,16 +7,18 @@ Mac Agent, and Mobile Web repositories; it does not import their source.
 
 ## Current release status
 
-Runtime `0.2.0` has passed local Apple Silicon Homebrew acceptance, including
+Runtime `0.2.0-beta.1` is being prepared as an unsigned public Beta based on the
+local `0.2.0` Apple Silicon Homebrew acceptance milestone, including
 isolated PostgreSQL 17, bundled Valkey 9.1.1, occupied default ports, all five
 LaunchAgents, `doctor --json`, Mac Agent connectivity, and QR generation. It is
-not yet a public release: the GitHub repositories, immutable tags and Release
-assets, Developer ID signing, Apple notarization, complete third-party notices,
-and clean-Mac upgrade/rollback acceptance are still required.
+It is not yet downloadable: immutable tags, the GitHub prerelease asset, and
+clean-Mac upgrade/rollback acceptance are still required. The Beta binary
+license and generated third-party notices are release inputs. Developer ID
+signing and Apple notarization are explicitly deferred to a later stable release.
 
 The local archive is release-candidate evidence only. Do not publish a Formula
-that points to a local `file://` URL or describe `0.2.0` as generally available
-until every stable release gate below has passed.
+that points to a local `file://` URL or describe `0.2.0-beta.1` as available
+until every Beta release gate below has passed.
 
 ## User installation after publication
 
@@ -69,14 +71,16 @@ upgrade; `doctor` reports the conflicting process instead.
 
 ```bash
 make test vet
-make assemble VERSION=0.2.0
+make notices
+make assemble VERSION=0.2.0-beta.1 CHANNEL=beta
 ./scripts/update-formula.sh \
-  0.2.0 \
-  dist/codex-remote-runtime-0.2.0-darwin-arm64.tar.gz \
+  0.2.0-beta.1 \
+  dist/codex-remote-runtime-0.2.0-beta.1-darwin-arm64.tar.gz \
   ../homebrew-tap
 ```
 
-The stable release gate additionally requires Developer ID signing, Apple
-notarization, complete third-party license generation, immutable component
-tags, a public Release URL, clean-Mac Homebrew install/upgrade/rollback tests,
-and true-device pairing acceptance.
+The Beta gate requires generated third-party licenses, an explicit public Beta
+binary license, immutable component tags, a GitHub prerelease, clean-Mac
+Homebrew install/upgrade/rollback tests, and true-device pairing acceptance.
+The stable gate additionally requires Developer ID signing and Apple
+notarization.

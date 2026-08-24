@@ -2,19 +2,20 @@
 set -euo pipefail
 
 usage() {
-  echo "Usage: ./scripts/assemble.sh <version> [output-directory]" >&2
+  echo "Usage: ./scripts/assemble.sh <version> <beta|stable> [output-directory]" >&2
 }
 
-if [[ "$#" -lt 1 || "$#" -gt 2 ]]; then
+if [[ "$#" -lt 2 || "$#" -gt 3 ]]; then
   usage
   exit 2
 fi
 
 version="$1"
+channel="$2"
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_dir="$(cd "${script_dir}/.." && pwd)"
 workspace_dir="$(cd "${repo_dir}/.." && pwd)"
-output_dir="${2:-${repo_dir}/dist}"
+output_dir="${3:-${repo_dir}/dist}"
 platform="darwin-arm64"
 archive_name="codex-remote-runtime-${version}-${platform}.tar.gz"
 stage_name="codex-remote-runtime-${version}-${platform}"
@@ -28,6 +29,18 @@ if [[ ! "${version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.-]+)?$ ]]; then
   echo "Version must be SemVer-compatible: ${version}" >&2
   exit 2
 fi
+if [[ "${channel}" != "beta" && "${channel}" != "stable" ]]; then
+  echo "Channel must be beta or stable: ${channel}" >&2
+  exit 2
+fi
+if [[ "${channel}" == "beta" && "${version}" != *-* ]]; then
+  echo "Beta releases require a SemVer prerelease version: ${version}" >&2
+  exit 2
+fi
+if [[ "${channel}" == "stable" && "${version}" == *-* ]]; then
+  echo "Stable releases cannot use a SemVer prerelease version: ${version}" >&2
+  exit 2
+fi
 
 for repository in relay-server mac-agent mobile-web; do
   if [[ -n "$(git -C "${workspace_dir}/${repository}" status --porcelain)" ]]; then
@@ -35,6 +48,18 @@ for repository in relay-server mac-agent mobile-web; do
     exit 1
   fi
 done
+if grep -Eqi 'placeholder|must be selected|must be generated' "${repo_dir}/THIRD_PARTY_NOTICES"; then
+  echo "THIRD_PARTY_NOTICES is not release-ready. Run make notices and review the result." >&2
+  exit 1
+fi
+if grep -Eqi 'must be selected|license must be selected' "${repo_dir}/docs/BINARY-DISTRIBUTION-NOTICE"; then
+  echo "The public binary distribution license is not release-ready." >&2
+  exit 1
+fi
+if [[ ! -d "${repo_dir}/LICENSES/go" || ! -d "${repo_dir}/LICENSES/node" ]]; then
+  echo "Generated third-party license texts are missing. Run make notices." >&2
+  exit 1
+fi
 
 mkdir -p "${output_dir}"
 temporary_dir="$(mktemp -d "${TMPDIR:-/tmp}/codex-remote-release.XXXXXX")"
@@ -111,6 +136,7 @@ mkdir -p "${stage_dir}/bin" "${stage_dir}/share/mobile-web" "${stage_dir}/LICENS
 cp "${build_dir}/"* "${stage_dir}/bin/"
 cp -R "${workspace_dir}/mobile-web/dist/." "${stage_dir}/share/mobile-web/"
 cp "${repo_dir}/docs/BINARY-DISTRIBUTION-NOTICE" "${stage_dir}/LICENSES/"
+cp -R "${repo_dir}/LICENSES/." "${stage_dir}/LICENSES/"
 cp "${temporary_dir}/valkey-source/valkey-${valkey_version}/COPYING" "${stage_dir}/LICENSES/Valkey-COPYING"
 cp "${repo_dir}/THIRD_PARTY_NOTICES" "${stage_dir}/"
 
@@ -118,9 +144,22 @@ relay_commit="$(git -C "${workspace_dir}/relay-server" rev-parse HEAD)"
 agent_commit="$(git -C "${workspace_dir}/mac-agent" rev-parse HEAD)"
 mobile_commit="$(git -C "${workspace_dir}/mobile-web" rev-parse HEAD)"
 distribution_commit="$(git -C "${repo_dir}" rev-parse HEAD)"
+release_tag="v${version}"
+for repository in relay-server mac-agent mobile-web; do
+  if ! git -C "${workspace_dir}/${repository}" tag --points-at HEAD | grep -Fxq "${release_tag}"; then
+    echo "${repository} HEAD is missing release tag ${release_tag}." >&2
+    exit 1
+  fi
+done
+if ! git -C "${repo_dir}" tag --points-at HEAD | grep -Fxq "${release_tag}"; then
+  echo "runtime-distribution HEAD is missing release tag ${release_tag}." >&2
+  exit 1
+fi
 codex_version="$(codex --version 2>/dev/null || true)"
 jq -n \
   --arg runtime_version "${version}" \
+  --arg channel "${channel}" \
+  --arg release_tag "${release_tag}" \
   --arg relay_commit "${relay_commit}" \
   --arg agent_commit "${agent_commit}" \
   --arg mobile_commit "${mobile_commit}" \
@@ -128,7 +167,7 @@ jq -n \
   --arg valkey_version "${valkey_version}" \
   --arg valkey_sha256 "${valkey_sha256}" \
   --arg codex_version "${codex_version}" \
-  '{schemaVersion:1,runtimeVersion:$runtime_version,channel:"stable",components:{"runtime-distribution":{commit:$distribution_commit,tag:null},"relay-server":{commit:$relay_commit,tag:null},"mac-agent":{commit:$agent_commit,tag:null},"mobile-web":{commit:$mobile_commit,tag:null},"valkey":{version:$valkey_version,sourceSha256:$valkey_sha256,build:"darwin-arm64, non-TLS, libc"}},databaseSchema:2,platforms:["darwin-arm64"],codex:{minimumVersion:"0.148.0",maximumTestedVersion:$codex_version},artifacts:[]}' \
+  '{schemaVersion:1,runtimeVersion:$runtime_version,channel:$channel,components:{"runtime-distribution":{commit:$distribution_commit,tag:$release_tag},"relay-server":{commit:$relay_commit,tag:$release_tag},"mac-agent":{commit:$agent_commit,tag:$release_tag},"mobile-web":{commit:$mobile_commit,tag:$release_tag},"valkey":{version:$valkey_version,sourceSha256:$valkey_sha256,build:"darwin-arm64, non-TLS, libc"}},databaseSchema:2,platforms:["darwin-arm64"],codex:{minimumVersion:"0.148.0",maximumTestedVersion:$codex_version},security:{developerIdSigned:false,appleNotarized:false},artifacts:[]}' \
   > "${stage_dir}/manifest.json"
 
 source_epoch="${SOURCE_DATE_EPOCH:-$(git -C "${repo_dir}" log -1 --format=%ct 2>/dev/null || date +%s)}"

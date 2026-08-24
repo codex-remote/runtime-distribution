@@ -31,6 +31,7 @@ class CodexRemote < Formula
   url "${release_url}"
   version "${version}"
   sha256 "${sha256}"
+  license :cannot_represent
 
   depends_on arch: :arm64
   depends_on :macos
@@ -43,6 +44,9 @@ class CodexRemote < Formula
 
   def caveats
     <<~EOS
+      This is a public beta that is not signed with Apple Developer ID and is
+      not notarized by Apple. Install it only if you accept this limitation.
+
       Complete the per-user setup after installation:
         codex-remote setup --workspace-root /path/to/your/work
 
