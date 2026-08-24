@@ -24,6 +24,10 @@ fi
 sha256="$(shasum -a 256 "${archive}" | awk '{print $1}')"
 formula="${tap_dir}/Formula/codex-remote.rb"
 temporary="${formula}.tmp"
+release_warning=""
+if [[ "${version}" == *-* ]]; then
+  release_warning=$'      This is a public beta that is not signed with Apple Developer ID and is\n      not notarized by Apple. Install it only if you accept this limitation.\n\n'
+fi
 cat > "${temporary}" <<RUBY
 class CodexRemote < Formula
   desc "Use a phone to control local Codex sessions over your LAN"
@@ -44,10 +48,7 @@ class CodexRemote < Formula
 
   def caveats
     <<~EOS
-      This is a public beta that is not signed with Apple Developer ID and is
-      not notarized by Apple. Install it only if you accept this limitation.
-
-      Complete the per-user setup after installation:
+${release_warning}      Complete the per-user setup after installation:
         codex-remote setup --workspace-root /path/to/your/work
 
       Setup creates isolated PostgreSQL and Valkey data under:
