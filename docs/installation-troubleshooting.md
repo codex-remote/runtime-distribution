@@ -43,6 +43,21 @@ The repair path reuses the saved Gateway origin, workspace roots, database,
 and Keychain credentials. It regenerates LaunchAgents and validates the current
 Runtime layout.
 
+## Valkey does not become ready after setup
+
+Run `codex-remote doctor --json` and inspect
+`~/Library/Application Support/CodexRemote/Logs/valkey.stderr.log`.
+
+Runtime `0.2.0-beta.1` generated an unquoted Valkey `dir` value. The default
+macOS state path contains the space in `Application Support`, so Valkey exited
+with `wrong number of arguments` and port `63800` never opened. Re-running
+Setup with that version cannot recover it.
+
+Upgrade to `0.2.0-beta.2` or later before running `setup --repair`. The fixed
+Runtime quotes and escapes Valkey configuration values and rolls back only the
+LaunchAgents started by a failed Setup attempt. Do not manually remove the
+PostgreSQL data directory or Keychain credentials; repair reuses them.
+
 ## Upgrade or uninstall
 
 `brew upgrade` replaces only immutable files. `codex-remote uninstall` removes

@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/url"
 	"os"
@@ -35,17 +36,10 @@ func runService(service string) error {
 		if err != nil {
 			return err
 		}
-		configuration := strings.Join([]string{
-			"bind 127.0.0.1",
-			"protected-mode yes",
-			"port " + strconv.Itoa(config.Ports.Valkey),
-			"dir " + paths.DataDir,
-			"dbfilename valkey.rdb",
-			"appendonly yes",
-			"appendfilename valkey.aof",
-			"requirepass " + password,
-			"",
-		}, "\n")
+		configuration, err := valkeyConfiguration(config, paths, password)
+		if err != nil {
+			return err
+		}
 		return runChildWithInput(layout.ValkeyServer, []string{"-"}, configuration)
 	case "relay":
 		postgresPassword, err := readSecret(context.Background(), postgresSecretService)
@@ -99,6 +93,36 @@ func runService(service string) error {
 	default:
 		return fmt.Errorf("unknown internal service %q", service)
 	}
+}
+
+func valkeyConfiguration(config Config, paths Paths, password string) (string, error) {
+	directory, err := quoteValkeyConfigValue(paths.DataDir)
+	if err != nil {
+		return "", fmt.Errorf("Valkey data directory: %w", err)
+	}
+	secret, err := quoteValkeyConfigValue(password)
+	if err != nil {
+		return "", fmt.Errorf("Valkey password: %w", err)
+	}
+	return strings.Join([]string{
+		"bind 127.0.0.1",
+		"protected-mode yes",
+		"port " + strconv.Itoa(config.Ports.Valkey),
+		"dir " + directory,
+		"dbfilename valkey.rdb",
+		"appendonly yes",
+		"appendfilename valkey.aof",
+		"requirepass " + secret,
+		"",
+	}, "\n"), nil
+}
+
+func quoteValkeyConfigValue(value string) (string, error) {
+	if strings.ContainsAny(value, "\x00\r\n") {
+		return "", errors.New("value contains a forbidden control character")
+	}
+	escaped := strings.NewReplacer(`\`, `\\`, `"`, `\"`).Replace(value)
+	return `"` + escaped + `"`, nil
 }
 
 func postgresArguments(config Config, paths Paths) []string {
