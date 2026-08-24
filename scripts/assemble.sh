@@ -140,7 +140,7 @@ rm -f "${archive_path}"
 COPYFILE_DISABLE=1 tar --uid 0 --gid 0 --numeric-owner -C "${output_dir}" -cf - "${stage_name}" | gzip -n > "${archive_path}"
 sha256="$(shasum -a 256 "${archive_path}" | awk '{print $1}')"
 size="$(stat -f '%z' "${archive_path}")"
-release_url="https://github.com/codex-remote/releases/releases/download/v${version}/${archive_name}"
+release_url="https://github.com/codex-remote/homebrew-tap/releases/download/v${version}/${archive_name}"
 jq \
   --arg url "${release_url}" \
   --arg sha256 "${sha256}" \

@@ -10,7 +10,7 @@ version="$1"
 archive="$2"
 tap_dir="$3"
 archive_name="$(basename "${archive}")"
-release_url="${4:-https://github.com/codex-remote/releases/releases/download/v${version}/${archive_name}}"
+release_url="${4:-https://github.com/codex-remote/homebrew-tap/releases/download/v${version}/${archive_name}}"
 
 if [[ ! -f "${archive}" ]]; then
   echo "Archive not found: ${archive}" >&2
