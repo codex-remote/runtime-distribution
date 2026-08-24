@@ -43,6 +43,17 @@ The repair path reuses the saved Gateway origin, workspace roots, database,
 and Keychain credentials. It regenerates LaunchAgents and validates the current
 Runtime layout.
 
+## Multiple Codex Remote Login Items are visible
+
+Versions through `0.2.0-beta.2` registered separate PostgreSQL, Valkey, Relay,
+Mac Agent, and Gateway LaunchAgents. macOS displayed all five by their shared
+`codex-remote` executable name.
+
+Upgrade to `0.2.0-beta.3` or later and run `codex-remote setup --repair` from an
+external Terminal. Repair unloads the exact five legacy labels, removes their
+plist files, and installs one `com.codex-remote.runtime` LaunchAgent. Do not
+disable individual legacy entries in System Settings.
+
 ## Valkey does not become ready after setup
 
 Run `codex-remote doctor --json` and inspect

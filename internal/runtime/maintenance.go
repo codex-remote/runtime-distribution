@@ -93,9 +93,18 @@ func restoreDatabase(ctx context.Context, paths Paths, config Config, backup str
 	if err := stopAll(ctx); err != nil {
 		return err
 	}
-	if err := bootstrapService(ctx, paths, "postgres"); err != nil {
+	postgres, err := startManagedProcess(paths, "postgres", nil)
+	if err != nil {
 		return err
 	}
+	postgresRunning := true
+	stopPostgres := func() {
+		if postgresRunning {
+			terminateManagedProcesses([]*managedProcess{postgres})
+			postgresRunning = false
+		}
+	}
+	defer stopPostgres()
 	if err := waitForPostgres(ctx, config.Toolchain, config.Ports.Postgres, 20*time.Second); err != nil {
 		return err
 	}
@@ -117,21 +126,11 @@ func restoreDatabase(ctx context.Context, paths Paths, config Config, backup str
 	if output, err := restore.CombinedOutput(); err != nil {
 		return fmt.Errorf("restore database: %w: %s", err, strings.TrimSpace(string(output)))
 	}
+	stopPostgres()
 	if err := startAll(ctx, paths, config); err != nil {
 		return err
 	}
 	fmt.Fprintf(stdout, "Database restored from %s\n", backup)
-	return nil
-}
-
-func bootstrapService(ctx context.Context, paths Paths, service string) error {
-	if serviceLoaded(service) {
-		return nil
-	}
-	command := exec.CommandContext(ctx, "launchctl", "bootstrap", launchDomain(), plistPath(paths, service))
-	if output, err := command.CombinedOutput(); err != nil {
-		return fmt.Errorf("start %s: %w: %s", service, err, strings.TrimSpace(string(output)))
-	}
 	return nil
 }
 
@@ -142,21 +141,10 @@ func migrate(ctx context.Context, paths Paths, config Config, stdout io.Writer) 
 	if _, err := backupDatabase(ctx, paths, config, stdout); err != nil {
 		return err
 	}
-	for _, service := range []string{"mac-agent", "relay"} {
-		if serviceLoaded(service) {
-			command := exec.CommandContext(ctx, "launchctl", "bootout", launchDomain()+"/"+serviceLabel(service))
-			if output, err := command.CombinedOutput(); err != nil {
-				return fmt.Errorf("stop %s: %w: %s", service, err, strings.TrimSpace(string(output)))
-			}
-		}
-	}
-	if err := bootstrapService(ctx, paths, "relay"); err != nil {
+	if err := stopAll(ctx); err != nil {
 		return err
 	}
-	if err := waitForHTTP(ctx, "http://127.0.0.1:"+strconv.Itoa(config.Ports.RunServer)+"/healthz", 30*time.Second); err != nil {
-		return err
-	}
-	if err := bootstrapService(ctx, paths, "mac-agent"); err != nil {
+	if err := startAll(ctx, paths, config); err != nil {
 		return err
 	}
 	fmt.Fprintln(stdout, "Embedded database migrations completed and services are healthy.")
@@ -173,7 +161,7 @@ func uninstall(ctx context.Context, paths Paths, config Config, purge, confirmed
 	if err := stopAll(ctx); err != nil {
 		return err
 	}
-	for _, service := range services {
+	for _, service := range allLaunchAgentServices() {
 		if err := os.Remove(plistPath(paths, service)); err != nil && !os.IsNotExist(err) {
 			return err
 		}

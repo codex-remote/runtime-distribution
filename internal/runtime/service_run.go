@@ -14,7 +14,7 @@ import (
 	"syscall"
 )
 
-func runService(service string) error {
+func runService(ctx context.Context, service string) error {
 	paths, err := resolvePaths()
 	if err != nil {
 		return err
@@ -28,10 +28,11 @@ func runService(service string) error {
 		return err
 	}
 	switch service {
+	case runtimeService:
+		return runRuntimeSupervisor(ctx)
 	case "postgres":
 		return execReplace(config.Toolchain.Postgres, postgresArguments(config, paths), postgresEnvironment())
 	case "valkey":
-		ctx := context.Background()
 		password, err := readSecret(ctx, valkeySecretService)
 		if err != nil {
 			return err
@@ -42,11 +43,11 @@ func runService(service string) error {
 		}
 		return runChildWithInput(layout.ValkeyServer, []string{"-"}, configuration)
 	case "relay":
-		postgresPassword, err := readSecret(context.Background(), postgresSecretService)
+		postgresPassword, err := readSecret(ctx, postgresSecretService)
 		if err != nil {
 			return err
 		}
-		valkeyPassword, err := readSecret(context.Background(), valkeySecretService)
+		valkeyPassword, err := readSecret(ctx, valkeySecretService)
 		if err != nil {
 			return err
 		}

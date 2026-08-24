@@ -129,6 +129,14 @@ func setup(ctx context.Context, version string, options setupOptions, stdout io.
 	if err := saveConfig(paths, config); err != nil {
 		return err
 	}
+	if options.Repair && hasExisting && options.Start {
+		if err := ensureExternalMaintenance(existing); err != nil {
+			return err
+		}
+		if err := stopAll(ctx); err != nil {
+			return err
+		}
+	}
 	if err := writeLaunchAgents(paths, layout); err != nil {
 		return err
 	}
@@ -209,58 +217,86 @@ func waitForPostgres(ctx context.Context, tools Toolchain, port int, timeout tim
 
 func launchDomain() string { return "gui/" + strconv.Itoa(os.Getuid()) }
 
-func serviceLoaded(service string) bool {
+var serviceLoaded = func(service string) bool {
 	return exec.Command("launchctl", "print", launchDomain()+"/"+serviceLabel(service)).Run() == nil
 }
 
 func startAll(ctx context.Context, paths Paths, config Config) error {
+	if _, err := os.Stat(plistPath(paths, runtimeService)); os.IsNotExist(err) {
+		layout, layoutErr := resolveLayout()
+		if layoutErr != nil {
+			return layoutErr
+		}
+		if layoutErr = layout.validate(); layoutErr != nil {
+			return layoutErr
+		}
+		if layoutErr = writeLaunchAgents(paths, layout); layoutErr != nil {
+			return layoutErr
+		}
+	} else if err != nil {
+		return err
+	}
 	portByService := map[string][]int{
 		"postgres": {config.Ports.Postgres}, "valkey": {config.Ports.Valkey},
 		"relay": {config.Ports.RunServer, config.Ports.AuthControl}, "gateway": {config.Ports.Gateway},
 	}
-	started := make([]string, 0, len(services))
+	if err := removeLegacyLaunchAgents(ctx, paths); err != nil {
+		return err
+	}
+	loaded := serviceLoaded(runtimeService)
+	if !loaded {
+		for _, service := range managedServices {
+			for _, port := range portByService[service] {
+				if portListening(port) {
+					return fmt.Errorf("port %d required by %s is occupied; no process was stopped:\n%s", port, service, listenerDescription(port))
+				}
+			}
+		}
+		command := exec.CommandContext(ctx, "launchctl", "bootstrap", launchDomain(), plistPath(paths, runtimeService))
+		if output, err := command.CombinedOutput(); err != nil {
+			return fmt.Errorf("start %s: %w: %s", runtimeService, err, strings.TrimSpace(string(output)))
+		}
+	}
 	rollback := func(startErr error) error {
-		if len(started) == 0 {
+		if loaded {
 			return startErr
 		}
 		rollbackCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		if rollbackErr := stopServices(rollbackCtx, started); rollbackErr != nil {
-			return fmt.Errorf("%w; rollback newly started services: %v", startErr, rollbackErr)
+		if rollbackErr := stopServices(rollbackCtx, []string{runtimeService}); rollbackErr != nil {
+			return fmt.Errorf("%w; rollback runtime LaunchAgent: %v", startErr, rollbackErr)
 		}
 		return startErr
 	}
-	for _, service := range services {
-		for _, port := range portByService[service] {
-			if !serviceLoaded(service) && portListening(port) {
-				return rollback(fmt.Errorf("port %d required by %s is occupied; no process was stopped:\n%s", port, service, listenerDescription(port)))
-			}
-		}
-		if !serviceLoaded(service) {
-			command := exec.CommandContext(ctx, "launchctl", "bootstrap", launchDomain(), plistPath(paths, service))
-			if output, err := command.CombinedOutput(); err != nil {
-				return rollback(fmt.Errorf("start %s: %w: %s", service, err, strings.TrimSpace(string(output))))
-			}
-			started = append(started, service)
-		}
-		if service == "postgres" {
-			if err := waitForPostgres(ctx, config.Toolchain, config.Ports.Postgres, 20*time.Second); err != nil {
-				return rollback(err)
-			}
-		}
-		if service == "valkey" {
-			if err := waitForPort(ctx, config.Ports.Valkey, 20*time.Second); err != nil {
-				return rollback(fmt.Errorf("Valkey: %w", err))
-			}
-		}
-		if service == "relay" {
-			if err := waitForHTTP(ctx, "http://127.0.0.1:"+strconv.Itoa(config.Ports.RunServer)+"/healthz", 30*time.Second); err != nil {
-				return rollback(fmt.Errorf("Run Server: %w", err))
-			}
-		}
+	if err := waitForPostgres(ctx, config.Toolchain, config.Ports.Postgres, 20*time.Second); err != nil {
+		return rollback(err)
+	}
+	if err := waitForPort(ctx, config.Ports.Valkey, 20*time.Second); err != nil {
+		return rollback(fmt.Errorf("Valkey: %w", err))
+	}
+	if err := waitForHTTP(ctx, "http://127.0.0.1:"+strconv.Itoa(config.Ports.RunServer)+"/healthz", 30*time.Second); err != nil {
+		return rollback(fmt.Errorf("Run Server: %w", err))
 	}
 	if err := waitForHTTP(ctx, "http://127.0.0.1:"+strconv.Itoa(config.Ports.Gateway)+"/gateway/healthz", 20*time.Second); err != nil {
 		return rollback(fmt.Errorf("Gateway: %w", err))
+	}
+	return nil
+}
+
+func removeLegacyLaunchAgents(ctx context.Context, paths Paths) error {
+	loaded := make([]string, 0, len(managedServices))
+	for _, service := range managedServices {
+		if serviceLoaded(service) {
+			loaded = append(loaded, service)
+		}
+	}
+	if err := stopServices(ctx, loaded); err != nil {
+		return fmt.Errorf("stop legacy LaunchAgents: %w", err)
+	}
+	for _, service := range managedServices {
+		if err := os.Remove(plistPath(paths, service)); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("remove legacy %s LaunchAgent: %w", service, err)
+		}
 	}
 	return nil
 }
@@ -301,8 +337,9 @@ func waitForHTTP(ctx context.Context, endpoint string, timeout time.Duration) er
 }
 
 func stopAll(ctx context.Context) error {
-	loaded := make([]string, 0, len(services))
-	for _, service := range services {
+	launchAgents := allLaunchAgentServices()
+	loaded := make([]string, 0, len(launchAgents))
+	for _, service := range launchAgents {
 		if serviceLoaded(service) {
 			loaded = append(loaded, service)
 		}
@@ -385,7 +422,7 @@ type statusReport struct {
 
 func status(paths Paths, config Config) statusReport {
 	report := statusReport{Configured: true, Version: config.RuntimeVersion, Services: make(map[string]string)}
-	for _, service := range services {
+	for _, service := range []string{runtimeService} {
 		state := "stopped"
 		if serviceLoaded(service) {
 			state = "loaded"
@@ -407,7 +444,7 @@ func printStatus(stdout io.Writer, report statusReport, asJSON bool) error {
 		return encoder.Encode(report)
 	}
 	fmt.Fprintf(stdout, "Runtime: %s\n", report.Version)
-	for _, service := range services {
+	for _, service := range []string{runtimeService} {
 		fmt.Fprintf(stdout, "%-10s %s\n", service+":", report.Services[service])
 	}
 	fmt.Fprintf(stdout, "LAN URL: %s\n", report.LANURL)

@@ -225,7 +225,7 @@ func Run(arguments []string, version string, stdout, stderr io.Writer) int {
 			fmt.Fprintln(stderr, "service-run requires one internal service name")
 			return 2
 		}
-		err = runService(arguments[0])
+		err = runService(ctx, arguments[0])
 	default:
 		fmt.Fprintf(stderr, "unknown command %q\n\n", command)
 		printUsage(stderr)

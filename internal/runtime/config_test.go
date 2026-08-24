@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"os"
 	"path/filepath"
 	"reflect"
 	"testing"
@@ -33,7 +34,7 @@ func TestConfigRoundTrip(t *testing.T) {
 }
 
 func TestRenderedPlistContainsNoCredentialFields(t *testing.T) {
-	contents := renderPlist("com.codex-remote.relay", "/opt/homebrew/bin/codex-remote", []string{"service-run", "relay"}, "/state", "/logs/out", "/logs/err", map[string]string{"CODEX_REMOTE_HOME": "/state"})
+	contents := renderPlist("com.codex-remote.runtime", "/opt/homebrew/bin/codex-remote", []string{"service-run", "runtime"}, "/state", "/logs/out", "/logs/err", map[string]string{"CODEX_REMOTE_HOME": "/state"})
 	for _, forbidden := range []string{"RUNTIME_DATABASE_URL", "requirepass", "postgres-password", "valkey-password"} {
 		if contains(contents, forbidden) {
 			t.Fatalf("plist contains secret-related field %q", forbidden)
@@ -41,6 +42,28 @@ func TestRenderedPlistContainsNoCredentialFields(t *testing.T) {
 	}
 	if !contains(contents, "CODEX_REMOTE_HOME") || !contains(contents, "/state") {
 		t.Fatal("plist does not persist the runtime state directory")
+	}
+}
+
+func TestWriteLaunchAgentsCreatesOneRuntimePlist(t *testing.T) {
+	directory := t.TempDir()
+	paths := Paths{LaunchAgents: directory, StateDir: "/state", LogDir: "/logs"}
+	if err := writeLaunchAgents(paths, Layout{CLI: "/opt/homebrew/bin/codex-remote"}); err != nil {
+		t.Fatal(err)
+	}
+	entries, err := os.ReadDir(directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || entries[0].Name() != "com.codex-remote.runtime.plist" {
+		t.Fatalf("LaunchAgent files = %v, want only com.codex-remote.runtime.plist", entries)
+	}
+	contents, err := os.ReadFile(filepath.Join(directory, entries[0].Name()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !contains(string(contents), "<string>service-run</string>") || !contains(string(contents), "<string>runtime</string>") {
+		t.Fatalf("runtime plist has unexpected arguments:\n%s", contents)
 	}
 }
 

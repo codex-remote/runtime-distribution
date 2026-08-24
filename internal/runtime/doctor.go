@@ -8,6 +8,7 @@ import (
 	"net/http"
 	goruntime "runtime"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -58,13 +59,22 @@ func runDoctor(ctx context.Context, stdout io.Writer, asJSON bool) error {
 			add("postgres-keychain", postgresErr, "credential is present")
 			_, valkeyErr := readSecret(ctx, valkeySecretService)
 			add("valkey-keychain", valkeyErr, "credential is present")
-			for _, service := range services {
-				var serviceErr error
-				if !serviceLoaded(service) {
-					serviceErr = fmt.Errorf("LaunchAgent is not loaded")
-				}
-				add("service-"+service, serviceErr, "loaded")
+			var runtimeErr error
+			if !serviceLoaded(runtimeService) {
+				runtimeErr = fmt.Errorf("LaunchAgent is not loaded")
 			}
+			add("service-runtime", runtimeErr, "loaded")
+			var legacy []string
+			for _, service := range managedServices {
+				if serviceLoaded(service) {
+					legacy = append(legacy, service)
+				}
+			}
+			var legacyErr error
+			if len(legacy) != 0 {
+				legacyErr = fmt.Errorf("legacy LaunchAgents are loaded (%s); run setup --repair", strings.Join(legacy, ", "))
+			}
+			add("legacy-launchagents", legacyErr, "none loaded")
 			add("run-server-health", healthError("http://127.0.0.1:"+strconv.Itoa(config.Ports.RunServer)+"/healthz"), "healthy")
 			add("gateway-health", healthError("http://127.0.0.1:"+strconv.Itoa(config.Ports.Gateway)+"/gateway/healthz"), "healthy")
 		}

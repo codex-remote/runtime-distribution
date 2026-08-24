@@ -129,6 +129,85 @@ func TestStopServicesRollsBackInReverseOrder(t *testing.T) {
 	}
 }
 
+func TestRemoveLegacyLaunchAgentsStopsAndDeletesOnlyLegacyJobs(t *testing.T) {
+	originalLoaded := serviceLoaded
+	originalBootout := bootoutService
+	t.Cleanup(func() {
+		serviceLoaded = originalLoaded
+		bootoutService = originalBootout
+	})
+	serviceLoaded = func(service string) bool { return service == "postgres" || service == "valkey" }
+	var stopped []string
+	bootoutService = func(_ context.Context, service string) error {
+		stopped = append(stopped, service)
+		return nil
+	}
+	directory := t.TempDir()
+	paths := Paths{LaunchAgents: directory}
+	for _, service := range allLaunchAgentServices() {
+		if err := os.WriteFile(plistPath(paths, service), []byte(service), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := removeLegacyLaunchAgents(context.Background(), paths); err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"valkey", "postgres"}; !reflect.DeepEqual(stopped, want) {
+		t.Fatalf("stopped = %v, want %v", stopped, want)
+	}
+	if _, err := os.Stat(plistPath(paths, runtimeService)); err != nil {
+		t.Fatalf("runtime plist was removed: %v", err)
+	}
+	for _, service := range managedServices {
+		if _, err := os.Stat(plistPath(paths, service)); !os.IsNotExist(err) {
+			t.Fatalf("legacy plist %s still exists", service)
+		}
+	}
+}
+
+func TestRuntimeEnvironmentReplacesStateDirectory(t *testing.T) {
+	t.Setenv("CODEX_REMOTE_HOME", "/old")
+	values := runtimeEnvironment("/new state")
+	var found []string
+	for _, value := range values {
+		if strings.HasPrefix(value, "CODEX_REMOTE_HOME=") {
+			found = append(found, value)
+		}
+	}
+	if want := []string{"CODEX_REMOTE_HOME=/new state"}; !reflect.DeepEqual(found, want) {
+		t.Fatalf("CODEX_REMOTE_HOME entries = %v, want %v", found, want)
+	}
+}
+
+func TestManagedProcessUsesSupervisorCommandEnvironmentAndLogs(t *testing.T) {
+	originalExecutable := supervisorExecutable
+	t.Cleanup(func() { supervisorExecutable = originalExecutable })
+	directory := t.TempDir()
+	helper := filepath.Join(directory, "codex-remote-helper")
+	script := "#!/bin/sh\ntrap 'exit 0' TERM INT\necho \"$CODEX_REMOTE_HOME|$1|$2\"\nwhile :; do sleep 1; done\n"
+	if err := os.WriteFile(helper, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	supervisorExecutable = func() (string, error) { return helper, nil }
+	paths := Paths{StateDir: "/state with spaces", LogDir: filepath.Join(directory, "logs")}
+	process, err := startManagedProcess(paths, "relay", make(chan managedExit, 1))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { terminateManagedProcesses([]*managedProcess{process}) })
+	logPath := filepath.Join(paths.LogDir, "relay.stdout.log")
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		contents, readErr := os.ReadFile(logPath)
+		if readErr == nil && strings.Contains(string(contents), "/state with spaces|service-run|relay") {
+			return
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+	contents, _ := os.ReadFile(logPath)
+	t.Fatalf("managed process log = %q", contents)
+}
+
 func TestPostgresEnvironmentDefinesLaunchdSafeLocale(t *testing.T) {
 	t.Setenv("LC_ALL", "zh_CN.UTF-8")
 	count := 0

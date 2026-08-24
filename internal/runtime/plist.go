@@ -8,7 +8,15 @@ import (
 	"strings"
 )
 
-var services = []string{"postgres", "valkey", "relay", "mac-agent", "gateway"}
+const runtimeService = "runtime"
+
+var managedServices = []string{"postgres", "valkey", "relay", "mac-agent", "gateway"}
+
+func allLaunchAgentServices() []string {
+	result := make([]string, 0, len(managedServices)+1)
+	result = append(result, managedServices...)
+	return append(result, runtimeService)
+}
 
 func serviceLabel(service string) string { return "com.codex-remote." + service }
 
@@ -20,15 +28,13 @@ func writeLaunchAgents(paths Paths, layout Layout) error {
 	if err := os.MkdirAll(paths.LaunchAgents, 0o755); err != nil {
 		return err
 	}
-	for _, service := range services {
-		label := serviceLabel(service)
-		contents := renderPlist(label, layout.CLI, []string{"service-run", service}, paths.StateDir,
-			filepath.Join(paths.LogDir, service+".stdout.log"), filepath.Join(paths.LogDir, service+".stderr.log"),
-			map[string]string{"CODEX_REMOTE_HOME": paths.StateDir})
-		path := plistPath(paths, service)
-		if err := os.WriteFile(path, []byte(contents), 0o644); err != nil {
-			return fmt.Errorf("write %s: %w", path, err)
-		}
+	label := serviceLabel(runtimeService)
+	contents := renderPlist(label, layout.CLI, []string{"service-run", runtimeService}, paths.StateDir,
+		filepath.Join(paths.LogDir, runtimeService+".stdout.log"), filepath.Join(paths.LogDir, runtimeService+".stderr.log"),
+		map[string]string{"CODEX_REMOTE_HOME": paths.StateDir})
+	path := plistPath(paths, runtimeService)
+	if err := os.WriteFile(path, []byte(contents), 0o644); err != nil {
+		return fmt.Errorf("write %s: %w", path, err)
 	}
 	return nil
 }
