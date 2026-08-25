@@ -30,7 +30,7 @@ if [[ "${version}" == *-* ]]; then
 fi
 cat > "${temporary}" <<RUBY
 class CodexRemote < Formula
-  desc "Use a phone to control local Codex sessions over your LAN"
+  desc "Use your phone as a remote workbench for Codex running on your Mac"
   homepage "https://github.com/codex-remote"
   url "${release_url}"
   version "${version}"
@@ -56,6 +56,12 @@ ${release_warning}      Complete the per-user setup after installation:
 
       Existing PostgreSQL and Valkey services are not modified. Ordinary
       brew upgrade, brew reinstall, and codex-remote uninstall preserve data.
+
+      Before removing the Homebrew package, stop services and keep data with:
+        codex-remote uninstall
+
+      To permanently remove state and Keychain credentials instead:
+        codex-remote uninstall --purge --yes
     EOS
   end
 
