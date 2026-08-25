@@ -226,6 +226,26 @@ func Run(arguments []string, version string, stdout, stderr io.Writer) int {
 			return 2
 		}
 		err = runService(ctx, arguments[0])
+	case "dev-supervisor":
+		flags := flag.NewFlagSet("dev-supervisor", flag.ContinueOnError)
+		flags.SetOutput(stderr)
+		options := devSupervisorOptions{}
+		flags.StringVar(&options.Relay, "relay", "", "Relay executable")
+		flags.StringVar(&options.Agent, "agent", "", "Mac Agent executable")
+		flags.StringVar(&options.Gateway, "gateway", "", "Mobile Web Gateway executable")
+		flags.StringVar(&options.StaticDir, "static", "", "Mobile Web dist directory")
+		flags.StringVar(&options.CodexBinary, "codex-binary", "", "Codex executable")
+		flags.StringVar(&options.RelayAddr, "relay-addr", "127.0.0.1:18875", "Relay listen address")
+		flags.StringVar(&options.AuthControl, "auth-control-addr", "127.0.0.1:18876", "Auth Control listen address")
+		flags.StringVar(&options.GatewayAddr, "gateway-addr", "0.0.0.0:18874", "Gateway listen address")
+		flags.StringVar(&options.DatabaseURL, "database-url", "postgres://codexremote:codexremote@127.0.0.1:54329/codexremote?sslmode=disable", "Runtime PostgreSQL URL")
+		flags.StringVar(&options.RedisURL, "redis-url", "redis://default:codexremote@127.0.0.1:63799/0", "Runtime Redis/Valkey URL")
+		flags.StringVar(&options.LogDir, "log-dir", "", "Supervisor log directory")
+		flags.Var((*stringList)(&options.WorkspaceRoots), "workspace-root", "allowed Mac Agent workspace root (repeatable)")
+		if flags.Parse(arguments) != nil {
+			return 2
+		}
+		err = runDevSupervisor(ctx, options, stdout)
 	default:
 		fmt.Fprintf(stderr, "unknown command %q\n\n", command)
 		printUsage(stderr)
@@ -254,5 +274,6 @@ Usage:
   codex-remote migrate | backup
   codex-remote rollback --backup FILE --yes
   codex-remote uninstall [--purge --yes]
+  codex-remote dev-supervisor --relay PATH --agent PATH --gateway PATH --static DIR --codex-binary PATH --log-dir DIR [--workspace-root DIR ...]
   codex-remote version`)
 }

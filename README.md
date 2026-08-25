@@ -17,6 +17,20 @@ The local archive is release-candidate evidence only. Do not publish a Formula
 that points to a local `file://` URL or describe `0.2.0-beta.3` as available
 until every Beta release gate below has passed.
 
+## Development Supervisor
+
+The additive `dev-supervisor` command reuses the release Supervisor process
+ownership and readiness/failure behavior for a source-worktree stack. It is
+not part of the installed Runtime setup and does not touch the release
+`com.codex-remote.runtime` LaunchAgent or its state directory. `mobile-web`
+builds this binary as `bin/codex-remote-dev-supervisor` and runs it under the
+isolated `com.codexremote.runtime.dev` LaunchAgent for `devrun crweb`.
+
+Development Supervisor currently manages the source-built Relay, Mac Agent,
+and Mobile Web Gateway while using the existing isolated development
+PostgreSQL/Valkey endpoints. Vite `test`, `codex`, and `poll` entries remain
+direct frontend-development launchers and are not children of this Supervisor.
+
 ## User installation after publication
 
 The third-party Tap installation will be:
