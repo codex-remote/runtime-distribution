@@ -60,7 +60,7 @@ func runDevSupervisor(ctx context.Context, options devSupervisorOptions, stdout 
 		return fail(fmt.Errorf("Relay: %w", err))
 	}
 
-	agentArguments := []string{"serve", "--relay-url", "ws://" + options.RelayAddr + "/ws/agent", "--codex-binary", options.CodexBinary, "--name", "leehoo-mac-mobileweb-supervised"}
+	agentArguments := []string{"serve", "--relay-url", "ws://" + options.RelayAddr + "/ws/agent", "--codex-binary", options.CodexBinary, "--name", "codex-remote-mobileweb-supervised"}
 	if _, err := start("mac-agent", options.Agent, agentArguments, agentDevelopmentEnvironment(options)); err != nil {
 		return fail(err)
 	}

@@ -33,9 +33,8 @@ class CodexRemote < Formula
   desc "Use your phone as a remote workbench for Codex running on your Mac"
   homepage "https://github.com/codex-remote"
   url "${release_url}"
-  version "${version}"
   sha256 "${sha256}"
-  license :cannot_represent
+  license "Apache-2.0"
 
   depends_on arch: :arm64
   depends_on :macos

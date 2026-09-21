@@ -52,10 +52,6 @@ if grep -Eqi 'placeholder|must be selected|must be generated' "${repo_dir}/THIRD
   echo "THIRD_PARTY_NOTICES is not release-ready. Run make notices and review the result." >&2
   exit 1
 fi
-if grep -Eqi 'must be selected|license must be selected' "${repo_dir}/docs/BINARY-DISTRIBUTION-NOTICE"; then
-  echo "The public binary distribution license is not release-ready." >&2
-  exit 1
-fi
 if [[ ! -d "${repo_dir}/LICENSES/go" || ! -d "${repo_dir}/LICENSES/node" ]]; then
   echo "Generated third-party license texts are missing. Run make notices." >&2
   exit 1
@@ -68,7 +64,7 @@ build_dir="${temporary_dir}/bin"
 mkdir -p "${build_dir}"
 
 valkey_version="9.1.1"
-valkey_sha256="7d7232acd1b8a49b4e05d07a00b3ca8c801ae06ab633ca6a3423bc5f385ab7ee"
+valkey_sha256="7d7232acd1b8a49b4e05d07a00b3ca8c801ae06ab633ca6a3423bc5f385ab7ee" # gitleaks:allow pinned public source checksum
 valkey_archive="${VALKEY_SOURCE_ARCHIVE:-${temporary_dir}/valkey-${valkey_version}.tar.gz}"
 if [[ ! -f "${valkey_archive}" ]]; then
   echo "Downloading pinned Valkey ${valkey_version} source..."
@@ -135,7 +131,8 @@ rm -rf "${stage_dir}"
 mkdir -p "${stage_dir}/bin" "${stage_dir}/share/mobile-web" "${stage_dir}/LICENSES"
 cp "${build_dir}/"* "${stage_dir}/bin/"
 cp -R "${workspace_dir}/mobile-web/dist/." "${stage_dir}/share/mobile-web/"
-cp "${repo_dir}/docs/BINARY-DISTRIBUTION-NOTICE" "${stage_dir}/LICENSES/"
+cp "${repo_dir}/LICENSE" "${stage_dir}/LICENSES/Apache-2.0.txt"
+cp "${repo_dir}/NOTICE" "${stage_dir}/NOTICE"
 cp -R "${repo_dir}/LICENSES/." "${stage_dir}/LICENSES/"
 cp "${temporary_dir}/valkey-source/valkey-${valkey_version}/COPYING" "${stage_dir}/LICENSES/Valkey-COPYING"
 cp "${repo_dir}/THIRD_PARTY_NOTICES" "${stage_dir}/"

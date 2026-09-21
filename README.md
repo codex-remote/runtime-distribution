@@ -54,10 +54,8 @@ brew reinstall codex-remote
 ```
 
 A bare `brew install codex-remote` on a clean Mac is a later official Homebrew
-Cask milestone. The Runtime is distributed as closed-source binaries, so it is
-not eligible for `homebrew/core`, whose Formulae must be open source. Before an
-official Cask is accepted, users must trust and install the third-party Tap
-Formula once; short-name upgrades then work on that machine.
+distribution milestone. Until then, users must trust and install the
+third-party Tap Formula once; short-name upgrades then work on that machine.
 
 ## Command responsibilities
 
@@ -90,8 +88,19 @@ make assemble VERSION=0.2.0-beta.3 CHANNEL=beta
   ../homebrew-tap
 ```
 
-The Beta gate requires generated third-party licenses, an explicit public Beta
-binary license, immutable component tags, a GitHub prerelease, clean-Mac
+The Beta gate requires the Apache-2.0 source license and NOTICE, generated
+third-party licenses, immutable component tags, a GitHub prerelease, clean-Mac
 Homebrew install/upgrade/rollback tests, and true-device pairing acceptance.
 The stable gate additionally requires Developer ID signing and Apple
 notarization.
+
+## Open source
+
+Source code and future Runtime artifacts are licensed under the
+[Apache License 2.0](LICENSE). See [NOTICE](NOTICE) for attribution and project
+name guidance. The already published `0.2.0-beta.1` through `0.2.0-beta.3`
+archives retain the historical license embedded in those immutable artifacts.
+
+Codex Remote is an independent open-source project and is not affiliated with
+or endorsed by OpenAI. Codex and OpenAI are trademarks of their respective
+owners.
