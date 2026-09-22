@@ -1,4 +1,4 @@
-VERSION ?= 0.2.0-beta.3
+VERSION ?= 0.2.0-beta.4
 CHANNEL ?= beta
 
 .PHONY: build test vet notices assemble clean

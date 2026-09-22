@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	goruntime "runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -133,7 +134,7 @@ func setup(ctx context.Context, version string, options setupOptions, stdout io.
 		if err := ensureExternalMaintenance(existing); err != nil {
 			return err
 		}
-		if err := stopAll(ctx); err != nil {
+		if err := stopAll(ctx, existing); err != nil {
 			return err
 		}
 	}
@@ -261,9 +262,9 @@ func startAll(ctx context.Context, paths Paths, config Config) error {
 		if loaded {
 			return startErr
 		}
-		rollbackCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		rollbackCtx, cancel := context.WithTimeout(context.Background(), runtimeShutdownTimeout+5*time.Second)
 		defer cancel()
-		if rollbackErr := stopServices(rollbackCtx, []string{runtimeService}); rollbackErr != nil {
+		if rollbackErr := stopAll(rollbackCtx, config); rollbackErr != nil {
 			return fmt.Errorf("%w; rollback runtime LaunchAgent: %v", startErr, rollbackErr)
 		}
 		return startErr
@@ -336,15 +337,153 @@ func waitForHTTP(ctx context.Context, endpoint string, timeout time.Duration) er
 	return fmt.Errorf("health check timed out: %s", endpoint)
 }
 
-func stopAll(ctx context.Context) error {
+const runtimeShutdownTimeout = 20 * time.Second
+
+var (
+	runtimeShutdownPollInterval = 100 * time.Millisecond
+	snapshotServiceProcessIDs   = serviceProcessIDs
+	processIsAlive              = processAlive
+	runtimePortListening        = portListening
+)
+
+func stopAll(ctx context.Context, config Config) error {
 	launchAgents := allLaunchAgentServices()
 	loaded := make([]string, 0, len(launchAgents))
+	trackedProcesses := make(map[int]bool)
 	for _, service := range launchAgents {
 		if serviceLoaded(service) {
 			loaded = append(loaded, service)
+			for _, pid := range snapshotServiceProcessIDs(service) {
+				trackedProcesses[pid] = true
+			}
 		}
 	}
-	return stopServices(ctx, loaded)
+	if len(loaded) == 0 {
+		return nil
+	}
+	if err := stopServices(ctx, loaded); err != nil {
+		return err
+	}
+	processIDs := make([]int, 0, len(trackedProcesses))
+	for pid := range trackedProcesses {
+		processIDs = append(processIDs, pid)
+	}
+	slices.Sort(processIDs)
+	return waitForRuntimeShutdown(ctx, processIDs, configuredRuntimePorts(config), runtimeShutdownTimeout)
+}
+
+func waitForRuntimeShutdown(ctx context.Context, processIDs, ports []int, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	for {
+		loaded := serviceLoaded(runtimeService)
+		remainingProcesses := aliveProcessIDs(processIDs)
+		remainingPorts := listeningPorts(ports)
+		if !loaded && len(remainingProcesses) == 0 && len(remainingPorts) == 0 {
+			return nil
+		}
+		if time.Now().After(deadline) {
+			return runtimeShutdownError(loaded, remainingProcesses, remainingPorts)
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(runtimeShutdownPollInterval):
+		}
+	}
+}
+
+func configuredRuntimePorts(config Config) []int {
+	return []int{config.Ports.Gateway, config.Ports.RunServer, config.Ports.AuthControl, config.Ports.Postgres, config.Ports.Valkey}
+}
+
+func aliveProcessIDs(processIDs []int) []int {
+	remaining := make([]int, 0, len(processIDs))
+	for _, pid := range processIDs {
+		if processIsAlive(pid) {
+			remaining = append(remaining, pid)
+		}
+	}
+	return remaining
+}
+
+func listeningPorts(ports []int) []int {
+	remaining := make([]int, 0, len(ports))
+	for _, port := range ports {
+		if runtimePortListening(port) {
+			remaining = append(remaining, port)
+		}
+	}
+	return remaining
+}
+
+func runtimeShutdownError(loaded bool, processIDs, ports []int) error {
+	remaining := make([]string, 0, 3)
+	if loaded {
+		remaining = append(remaining, serviceLabel(runtimeService)+" LaunchAgent")
+	}
+	if len(processIDs) != 0 {
+		remaining = append(remaining, fmt.Sprintf("process PIDs %v", processIDs))
+	}
+	if len(ports) != 0 {
+		remaining = append(remaining, fmt.Sprintf("listening ports %v", ports))
+	}
+	return fmt.Errorf("Codex Remote shutdown did not complete before restart; still present: %s", strings.Join(remaining, ", "))
+}
+
+func serviceProcessIDs(service string) []int {
+	output, err := exec.Command("launchctl", "print", launchDomain()+"/"+serviceLabel(service)).Output()
+	if err != nil {
+		return nil
+	}
+	root := parseLaunchctlPID(string(output))
+	if root == 0 {
+		return nil
+	}
+	processOutput, err := exec.Command("ps", "-axo", "pid=,ppid=").Output()
+	if err != nil {
+		return []int{root}
+	}
+	return descendantProcessIDs(root, string(processOutput))
+}
+
+func parseLaunchctlPID(output string) int {
+	for _, line := range strings.Split(output, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) == 3 && fields[0] == "pid" && fields[1] == "=" {
+			pid, _ := strconv.Atoi(fields[2])
+			return pid
+		}
+	}
+	return 0
+}
+
+func descendantProcessIDs(root int, output string) []int {
+	children := make(map[int][]int)
+	for _, line := range strings.Split(output, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) != 2 {
+			continue
+		}
+		pid, pidErr := strconv.Atoi(fields[0])
+		parent, parentErr := strconv.Atoi(fields[1])
+		if pidErr == nil && parentErr == nil {
+			children[parent] = append(children[parent], pid)
+		}
+	}
+	result := []int{root}
+	for index := 0; index < len(result); index++ {
+		result = append(result, children[result[index]]...)
+	}
+	slices.Sort(result)
+	return result
+}
+
+func processAlive(pid int) bool {
+	if pid <= 0 {
+		return false
+	}
+	err := syscall.Kill(pid, 0)
+	return err == nil || errors.Is(err, syscall.EPERM)
 }
 
 var bootoutService = func(ctx context.Context, service string) error {

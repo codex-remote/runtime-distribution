@@ -43,6 +43,24 @@ The repair path reuses the saved Gateway origin, workspace roots, database,
 and Keychain credentials. It regenerates LaunchAgents and validates the current
 Runtime layout.
 
+## Restart reports that PostgreSQL did not become ready
+
+Runtime `0.2.0-beta.3` could run `launchctl bootstrap` immediately after
+`bootout` returned, before the old Supervisor process tree and its persisted
+ports had fully exited. PostgreSQL could then fail during the handoff, while
+the top-level command reported only the later readiness timeout and rolled the
+new LaunchAgent back.
+
+First run `codex-remote status --json` and `codex-remote doctor --json`. Inspect
+`Logs/postgres.stderr.log`, verify the configured PostgreSQL port, and use
+`pg_controldata` to distinguish a cleanly stopped cluster from recovery or
+corruption. Do not delete the data directory or `postmaster.pid` based only on
+the readiness message.
+
+Upgrade to `0.2.0-beta.4` or later. Its stop and rollback paths wait for the
+exact old process snapshot, LaunchAgent removal, and all five Runtime ports
+before allowing a replacement start or returning a retryable failure.
+
 ## Multiple Codex Remote Login Items are visible
 
 Versions through `0.2.0-beta.2` registered separate PostgreSQL, Valkey, Relay,

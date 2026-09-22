@@ -7,15 +7,17 @@ Mac Agent, and Mobile Web repositories; it does not import their source.
 
 ## Current release status
 
-Runtime `0.2.0-beta.3` replaces five visible Login Items with one
+Runtime `0.2.0-beta.4` replaces five visible Login Items with one
 `com.codex-remote.runtime` LaunchAgent. Its Supervisor manages isolated
 PostgreSQL 17, bundled Valkey 9.1.1, Relay, Mac Agent, and Gateway with dynamic ports,
 `doctor --json`, Mac Agent connectivity, and QR generation. Developer ID
 signing and Apple notarization remain deferred to a later stable release.
 
+Beta 4 makes `restart` wait for the old LaunchAgent, its exact process tree,
+and all five persisted Runtime ports to exit before starting the replacement.
 The local archive is release-candidate evidence only. Do not publish a Formula
-that points to a local `file://` URL or describe `0.2.0-beta.3` as available
-until every Beta release gate below has passed.
+that points to a local `file://` URL or describe a version as available until
+every Beta release gate below has passed.
 
 ## Development Supervisor
 
@@ -81,10 +83,10 @@ upgrade; `doctor` reports the conflicting process instead.
 ```bash
 make test vet
 make notices
-make assemble VERSION=0.2.0-beta.3 CHANNEL=beta
+make assemble VERSION=0.2.0-beta.4 CHANNEL=beta
 ./scripts/update-formula.sh \
-  0.2.0-beta.3 \
-  dist/codex-remote-runtime-0.2.0-beta.3-darwin-arm64.tar.gz \
+  0.2.0-beta.4 \
+  dist/codex-remote-runtime-0.2.0-beta.4-darwin-arm64.tar.gz \
   ../homebrew-tap
 ```
 

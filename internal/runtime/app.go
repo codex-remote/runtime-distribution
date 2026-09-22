@@ -80,7 +80,7 @@ func Run(arguments []string, version string, stdout, stderr io.Writer) int {
 			err = ensureExternalMaintenance(config)
 		}
 		if err == nil {
-			err = stopAll(ctx)
+			err = stopAll(ctx, config)
 		}
 		if err == nil {
 			fmt.Fprintln(stdout, "Codex Remote services stopped.")
@@ -99,7 +99,7 @@ func Run(arguments []string, version string, stdout, stderr io.Writer) int {
 			err = ensureExternalMaintenance(config)
 		}
 		if err == nil {
-			err = stopAll(ctx)
+			err = stopAll(ctx, config)
 		}
 		if err == nil {
 			err = startAll(ctx, paths, config)

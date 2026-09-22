@@ -11,6 +11,7 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -126,6 +127,149 @@ func TestStopServicesRollsBackInReverseOrder(t *testing.T) {
 	}
 	if want := []string{"relay", "valkey", "postgres"}; !reflect.DeepEqual(stopped, want) {
 		t.Fatalf("stop order = %v, want %v", stopped, want)
+	}
+}
+
+func TestStopAllWaitsForTrackedProcessesAndPorts(t *testing.T) {
+	originalLoaded := serviceLoaded
+	originalBootout := bootoutService
+	originalSnapshot := snapshotServiceProcessIDs
+	originalProcessAlive := processIsAlive
+	originalPortListening := runtimePortListening
+	originalPollInterval := runtimeShutdownPollInterval
+	t.Cleanup(func() {
+		serviceLoaded = originalLoaded
+		bootoutService = originalBootout
+		snapshotServiceProcessIDs = originalSnapshot
+		processIsAlive = originalProcessAlive
+		runtimePortListening = originalPortListening
+		runtimeShutdownPollInterval = originalPollInterval
+	})
+
+	var mu sync.Mutex
+	loaded := true
+	alive := map[int]bool{101: true, 102: true}
+	listening := map[int]bool{54330: true}
+	serviceLoaded = func(service string) bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return service == runtimeService && loaded
+	}
+	snapshotServiceProcessIDs = func(service string) []int {
+		if service == runtimeService {
+			return []int{101, 102}
+		}
+		return nil
+	}
+	processIsAlive = func(pid int) bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return alive[pid]
+	}
+	runtimePortListening = func(port int) bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return listening[port]
+	}
+	runtimeShutdownPollInterval = time.Millisecond
+	bootoutService = func(_ context.Context, service string) error {
+		if service != runtimeService {
+			t.Fatalf("bootout service = %q, want %q", service, runtimeService)
+		}
+		mu.Lock()
+		loaded = false
+		mu.Unlock()
+		go func() {
+			time.Sleep(15 * time.Millisecond)
+			mu.Lock()
+			alive[101] = false
+			alive[102] = false
+			listening[54330] = false
+			mu.Unlock()
+		}()
+		return nil
+	}
+
+	started := time.Now()
+	config := Config{Ports: Ports{Postgres: 54330}}
+	if err := stopAll(context.Background(), config); err != nil {
+		t.Fatal(err)
+	}
+	if elapsed := time.Since(started); elapsed < 10*time.Millisecond {
+		t.Fatalf("stopAll returned before tracked processes exited: %s", elapsed)
+	}
+}
+
+func TestWaitForRuntimeShutdownReportsRemainingResources(t *testing.T) {
+	originalLoaded := serviceLoaded
+	originalProcessAlive := processIsAlive
+	originalPortListening := runtimePortListening
+	originalPollInterval := runtimeShutdownPollInterval
+	t.Cleanup(func() {
+		serviceLoaded = originalLoaded
+		processIsAlive = originalProcessAlive
+		runtimePortListening = originalPortListening
+		runtimeShutdownPollInterval = originalPollInterval
+	})
+	serviceLoaded = func(service string) bool { return service == runtimeService }
+	processIsAlive = func(pid int) bool { return pid == 42 }
+	runtimePortListening = func(port int) bool { return port == 54330 }
+	runtimeShutdownPollInterval = time.Millisecond
+
+	err := waitForRuntimeShutdown(context.Background(), []int{42, 43}, []int{54330, 63800}, 5*time.Millisecond)
+	if err == nil {
+		t.Fatal("expected shutdown timeout")
+	}
+	for _, expected := range []string{serviceLabel(runtimeService), "process PIDs [42]", "listening ports [54330]"} {
+		if !strings.Contains(err.Error(), expected) {
+			t.Fatalf("shutdown error %q does not contain %q", err, expected)
+		}
+	}
+	for _, absent := range []string{"process PIDs [42 43]", "listening ports [54330 63800]"} {
+		if strings.Contains(err.Error(), absent) {
+			t.Fatalf("shutdown error %q unexpectedly contains %q", err, absent)
+		}
+	}
+}
+
+func TestWaitForRuntimeShutdownHonorsCancellation(t *testing.T) {
+	originalLoaded := serviceLoaded
+	originalProcessAlive := processIsAlive
+	originalPortListening := runtimePortListening
+	originalPollInterval := runtimeShutdownPollInterval
+	t.Cleanup(func() {
+		serviceLoaded = originalLoaded
+		processIsAlive = originalProcessAlive
+		runtimePortListening = originalPortListening
+		runtimeShutdownPollInterval = originalPollInterval
+	})
+	serviceLoaded = func(string) bool { return true }
+	processIsAlive = func(int) bool { return false }
+	runtimePortListening = func(int) bool { return false }
+	runtimeShutdownPollInterval = time.Second
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := waitForRuntimeShutdown(ctx, nil, nil, time.Second); !errors.Is(err, context.Canceled) {
+		t.Fatalf("shutdown error = %v, want context canceled", err)
+	}
+}
+
+func TestParseLaunchctlPID(t *testing.T) {
+	output := "gui/501/com.codex-remote.runtime = {\n\tstate = running\n\tpid = 753\n}"
+	if got := parseLaunchctlPID(output); got != 753 {
+		t.Fatalf("PID = %d, want 753", got)
+	}
+	if got := parseLaunchctlPID("state = waiting"); got != 0 {
+		t.Fatalf("missing PID = %d, want 0", got)
+	}
+}
+
+func TestDescendantProcessIDsIncludesEntireSnapshotTree(t *testing.T) {
+	processes := "100 1\n101 100\n102 100\n103 101\n200 1\n"
+	want := []int{100, 101, 102, 103}
+	if got := descendantProcessIDs(100, processes); !reflect.DeepEqual(got, want) {
+		t.Fatalf("process IDs = %v, want %v", got, want)
 	}
 }
 
