@@ -90,7 +90,7 @@ func restoreDatabase(ctx context.Context, paths Paths, config Config, backup str
 	if err != nil {
 		return err
 	}
-	if err := stopAll(ctx); err != nil {
+	if err := stopAll(ctx, config); err != nil {
 		return err
 	}
 	postgres, err := startManagedProcess(paths, "postgres", nil)
@@ -141,7 +141,7 @@ func migrate(ctx context.Context, paths Paths, config Config, stdout io.Writer) 
 	if _, err := backupDatabase(ctx, paths, config, stdout); err != nil {
 		return err
 	}
-	if err := stopAll(ctx); err != nil {
+	if err := stopAll(ctx, config); err != nil {
 		return err
 	}
 	if err := startAll(ctx, paths, config); err != nil {
@@ -158,7 +158,7 @@ func uninstall(ctx context.Context, paths Paths, config Config, purge, confirmed
 	if purge && !confirmed {
 		return errors.New("--purge permanently deletes Codex Remote data; rerun with --purge --yes")
 	}
-	if err := stopAll(ctx); err != nil {
+	if err := stopAll(ctx, config); err != nil {
 		return err
 	}
 	for _, service := range allLaunchAgentServices() {
