@@ -8,7 +8,6 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
@@ -66,6 +65,9 @@ func Run(arguments []string, version string, stdout, stderr io.Writer) int {
 		}
 		if err == nil {
 			printReady(stdout, config)
+			if pairErr := runPairQR(ctx, config, nil, stdout, stderr); pairErr != nil {
+				fmt.Fprintf(stderr, "warning: generate pairing QR: %v\n", pairErr)
+			}
 		}
 	case "stop":
 		if len(arguments) != 0 {
@@ -107,6 +109,9 @@ func Run(arguments []string, version string, stdout, stderr io.Writer) int {
 		}
 		if err == nil {
 			printReady(stdout, config)
+			if pairErr := runPairQR(ctx, config, nil, stdout, stderr); pairErr != nil {
+				fmt.Fprintf(stderr, "warning: generate pairing QR: %v\n", pairErr)
+			}
 		}
 	case "status":
 		flags := flag.NewFlagSet("status", flag.ContinueOnError)
@@ -127,55 +132,12 @@ func Run(arguments []string, version string, stdout, stderr io.Writer) int {
 	case "pair":
 		var paths Paths
 		var config Config
-		var layout Layout
 		paths, err = resolvePaths()
 		if err == nil {
 			config, err = loadConfig(paths)
 		}
 		if err == nil {
-			layout, err = resolveLayout()
-		}
-		if err == nil {
-			lan := detectLANIPv4()
-			if lan == "" {
-				lan = "127.0.0.1"
-			}
-			pairArguments := []string{
-				"--control-url", "http://127.0.0.1:" + strconv.Itoa(config.Ports.AuthControl),
-				"--origin", "http://" + lan + ":" + strconv.Itoa(config.Ports.Gateway),
-			}
-			pairImage := ""
-			if !hasPairDisplayOverride(arguments) {
-				file, createErr := os.CreateTemp(os.TempDir(), "codex-remote-pair-*.png")
-				if createErr != nil {
-					err = fmt.Errorf("prepare pairing QR image: %w", createErr)
-					break
-				}
-				pairImage = filepath.Clean(file.Name())
-				if closeErr := file.Close(); closeErr != nil {
-					err = fmt.Errorf("prepare pairing QR image: %w", closeErr)
-					break
-				}
-				pairArguments = append(pairArguments,
-					"--terminal=false",
-					"--print-link=false",
-					"--output", pairImage,
-				)
-			}
-			pairArguments = append(pairArguments, arguments...)
-			pair := exec.CommandContext(ctx, layout.PairQR, pairArguments...)
-			pair.Stdout, pair.Stderr, pair.Stdin = stdout, stderr, os.Stdin
-			err = pair.Run()
-			if err != nil && pairImage != "" {
-				_ = os.Remove(pairImage)
-			}
-			if err == nil && pairImage != "" {
-				if openErr := exec.CommandContext(ctx, "open", pairImage).Run(); openErr != nil {
-					fmt.Fprintf(stderr, "open pairing QR image: %v\nPNG: %s\n", openErr, pairImage)
-				} else {
-					fmt.Fprintf(stdout, "Opened pairing QR image: %s\n", pairImage)
-				}
-			}
+			err = runPairQR(ctx, config, arguments, stdout, stderr)
 		}
 	case "doctor":
 		flags := flag.NewFlagSet("doctor", flag.ContinueOnError)
@@ -287,14 +249,27 @@ func Run(arguments []string, version string, stdout, stderr io.Writer) int {
 	return 0
 }
 
-func hasPairDisplayOverride(arguments []string) bool {
-	for _, argument := range arguments {
-		if argument == "--terminal" || strings.HasPrefix(argument, "--terminal=") ||
-			argument == "--output" || strings.HasPrefix(argument, "--output=") {
-			return true
-		}
+func runPairQR(ctx context.Context, config Config, arguments []string, stdout, stderr io.Writer) error {
+	layout, err := resolveLayout()
+	if err != nil {
+		return err
 	}
-	return false
+	lan := detectLANIPv4()
+	if lan == "" {
+		lan = "127.0.0.1"
+	}
+	pairArguments := pairingArguments(config, lan, arguments)
+	pair := exec.CommandContext(ctx, layout.PairQR, pairArguments...)
+	pair.Stdout, pair.Stderr, pair.Stdin = stdout, stderr, os.Stdin
+	return pair.Run()
+}
+
+func pairingArguments(config Config, lan string, arguments []string) []string {
+	pairArguments := []string{
+		"--control-url", "http://127.0.0.1:" + strconv.Itoa(config.Ports.AuthControl),
+		"--origin", "http://" + lan + ":" + strconv.Itoa(config.Ports.Gateway),
+	}
+	return append(pairArguments, arguments...)
 }
 
 func unexpectedArguments(stderr io.Writer, command string) int {

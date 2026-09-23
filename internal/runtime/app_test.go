@@ -1,26 +1,26 @@
 package runtime
 
-import "testing"
+import (
+	"reflect"
+	"testing"
+)
 
-func TestHasPairDisplayOverride(t *testing.T) {
-	for _, arguments := range [][]string{
-		{"--terminal"},
-		{"--terminal=false"},
-		{"--terminal=true"},
-		{"--output", "/tmp/pair.png"},
-		{"--output=/tmp/pair.png"},
-	} {
-		if !hasPairDisplayOverride(arguments) {
-			t.Fatalf("hasPairDisplayOverride(%v) = false", arguments)
-		}
+func TestPairingArgumentsKeepTerminalAndLinkDefaults(t *testing.T) {
+	config := Config{Ports: Ports{Gateway: 18774, AuthControl: 18776}}
+	got := pairingArguments(config, "192.168.0.185", nil)
+	want := []string{
+		"--control-url", "http://127.0.0.1:18776",
+		"--origin", "http://192.168.0.185:18774",
 	}
-	for _, arguments := range [][]string{
-		nil,
-		{"--name", "iPhone"},
-		{"--print-link=false"},
-	} {
-		if hasPairDisplayOverride(arguments) {
-			t.Fatalf("hasPairDisplayOverride(%v) = true", arguments)
-		}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("pairingArguments() = %#v, want %#v", got, want)
+	}
+}
+
+func TestPairingArgumentsPreserveExplicitOverrides(t *testing.T) {
+	config := Config{Ports: Ports{Gateway: 18774, AuthControl: 18776}}
+	got := pairingArguments(config, "192.168.0.185", []string{"--terminal=false", "--output", "/tmp/pair.png"})
+	if !reflect.DeepEqual(got[4:], []string{"--terminal=false", "--output", "/tmp/pair.png"}) {
+		t.Fatalf("pairingArguments() lost explicit options: %#v", got)
 	}
 }
