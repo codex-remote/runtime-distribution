@@ -44,6 +44,11 @@ codex-remote setup --workspace-root ~/work
 codex-remote pair
 ```
 
+By default, `codex-remote pair` creates a private, compact black-and-white PNG
+with integer QR modules and opens it in the macOS image viewer. This is the
+recommended iPhone-camera path. Pass `--terminal` explicitly when a terminal
+renderer is required; that mode prioritizes square module geometry over height.
+
 Homebrew 6 requires explicit trust before loading a non-official Formula. This
 security decision cannot be embedded in the Formula itself. Homebrew versions
 without Tap Trust ignore the extra command.
