@@ -15,6 +15,7 @@ func TestConfigRoundTrip(t *testing.T) {
 		SchemaVersion:  configSchemaVersion,
 		RuntimeVersion: "0.2.0",
 		InstalledAt:    time.Date(2026, 8, 23, 10, 0, 0, 0, time.UTC),
+		NetworkMode:    networkModeTailscale,
 		CodexBinary:    "/Applications/Codex.app/Contents/Resources/codex",
 		CodexVersion:   "codex-cli 1.2.3",
 		WorkspaceRoots: []string{"/work/a", "/work/b"},
@@ -30,6 +31,32 @@ func TestConfigRoundTrip(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("config round trip mismatch:\n got %#v\nwant %#v", got, want)
+	}
+}
+
+func TestLoadConfigAcceptsLegacyConfigWithoutNetworkMode(t *testing.T) {
+	directory := t.TempDir()
+	paths := Paths{ConfigFile: filepath.Join(directory, "config.json")}
+	if err := os.WriteFile(paths.ConfigFile, []byte(`{"schemaVersion":1}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	config, err := loadConfig(paths)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := effectiveNetworkMode(config); got != networkModeLAN {
+		t.Fatalf("legacy network mode = %q, want lan", got)
+	}
+}
+
+func TestLoadConfigRejectsUnknownNetworkMode(t *testing.T) {
+	directory := t.TempDir()
+	paths := Paths{ConfigFile: filepath.Join(directory, "config.json")}
+	if err := os.WriteFile(paths.ConfigFile, []byte(`{"schemaVersion":1,"networkMode":"public"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := loadConfig(paths); err == nil {
+		t.Fatal("unknown network mode was accepted")
 	}
 }
 

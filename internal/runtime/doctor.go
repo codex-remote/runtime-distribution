@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	goruntime "runtime"
 	"strconv"
@@ -77,6 +78,21 @@ func runDoctor(ctx context.Context, stdout io.Writer, asJSON bool) error {
 			add("legacy-launchagents", legacyErr, "none loaded")
 			add("run-server-health", healthError("http://127.0.0.1:"+strconv.Itoa(config.Ports.RunServer)+"/healthz"), "healthy")
 			add("gateway-health", healthError("http://127.0.0.1:"+strconv.Itoa(config.Ports.Gateway)+"/gateway/healthz"), "healthy")
+			if effectiveNetworkMode(config) == networkModeTailscale {
+				tailnet, tailnetErr := detectTailnet()
+				message := "connected"
+				if tailnetErr == nil {
+					message = tailnet.IPv4
+					if tailnet.DNSName != "" {
+						message += " (" + tailnet.DNSName + ")"
+					}
+				}
+				add("tailscale", tailnetErr, message)
+				if tailnetErr == nil {
+					endpoint := "http://" + net.JoinHostPort(tailnet.IPv4, strconv.Itoa(config.Ports.Gateway)) + "/gateway/healthz"
+					add("tailnet-gateway-health", healthError(endpoint), "healthy at "+endpoint)
+				}
+			}
 		}
 	}
 	if asJSON {

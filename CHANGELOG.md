@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- Add selectable `lan` and `tailscale` access modes. Status reports the active,
+  LAN, Tailnet, and MagicDNS addresses; pairing uses the selected network.
+- Validate the signed-in Tailscale client before enabling Tailnet access and
+  extend `doctor` with Tailnet address and Gateway reachability checks.
+- Let `pair --network tailscale` select a single online iOS device
+  automatically, prompt when several are online, and prefer a stable MagicDNS
+  short name with an explicit Tailnet IP fallback.
+
 ## 0.2.0-beta.10 - 2026-09-23
 
 ### Changed
