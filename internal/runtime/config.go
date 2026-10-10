@@ -30,14 +30,15 @@ type Toolchain struct {
 }
 
 type Config struct {
-	SchemaVersion  int       `json:"schemaVersion"`
-	RuntimeVersion string    `json:"runtimeVersion"`
-	InstalledAt    time.Time `json:"installedAt"`
-	CodexBinary    string    `json:"codexBinary"`
-	CodexVersion   string    `json:"codexVersion"`
-	WorkspaceRoots []string  `json:"workspaceRoots"`
-	Ports          Ports     `json:"ports"`
-	Toolchain      Toolchain `json:"toolchain"`
+	SchemaVersion  int         `json:"schemaVersion"`
+	RuntimeVersion string      `json:"runtimeVersion"`
+	InstalledAt    time.Time   `json:"installedAt"`
+	NetworkMode    NetworkMode `json:"networkMode,omitempty"`
+	CodexBinary    string      `json:"codexBinary"`
+	CodexVersion   string      `json:"codexVersion"`
+	WorkspaceRoots []string    `json:"workspaceRoots"`
+	Ports          Ports       `json:"ports"`
+	Toolchain      Toolchain   `json:"toolchain"`
 }
 
 type Paths struct {
@@ -96,6 +97,11 @@ func loadConfig(paths Paths) (Config, error) {
 	}
 	if config.SchemaVersion != configSchemaVersion {
 		return Config{}, fmt.Errorf("unsupported config schema %d", config.SchemaVersion)
+	}
+	if config.NetworkMode != "" {
+		if _, err := parseNetworkMode(string(config.NetworkMode)); err != nil {
+			return Config{}, fmt.Errorf("invalid configured network mode %q: %w", config.NetworkMode, err)
+		}
 	}
 	return config, nil
 }

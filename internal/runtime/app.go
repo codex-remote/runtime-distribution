@@ -42,6 +42,7 @@ func Run(arguments []string, version string, stdout, stderr io.Writer) int {
 		flags := flag.NewFlagSet("setup", flag.ContinueOnError)
 		flags.SetOutput(stderr)
 		codexBinary := flags.String("codex-binary", "", "explicit Codex CLI path")
+		networkMode := flags.String("network", "", "access network: lan or tailscale")
 		repair := flags.Bool("repair", false, "repair an existing installation without changing persisted ports")
 		noStart := flags.Bool("no-start", false, "prepare the installation without loading services")
 		var workspaceRoots stringList
@@ -49,7 +50,7 @@ func Run(arguments []string, version string, stdout, stderr io.Writer) int {
 		if flags.Parse(arguments) != nil {
 			return 2
 		}
-		err = setup(ctx, version, setupOptions{CodexBinary: *codexBinary, WorkspaceRoots: workspaceRoots, Repair: *repair, Start: !*noStart}, stdout)
+		err = setup(ctx, version, setupOptions{CodexBinary: *codexBinary, WorkspaceRoots: workspaceRoots, NetworkMode: *networkMode, Repair: *repair, Start: !*noStart}, stdout)
 	case "start":
 		if len(arguments) != 0 {
 			return unexpectedArguments(stderr, command)
@@ -138,6 +139,23 @@ func Run(arguments []string, version string, stdout, stderr io.Writer) int {
 		}
 		if err == nil {
 			err = runPairQR(ctx, config, arguments, stdout, stderr)
+		}
+	case "network":
+		if len(arguments) > 1 {
+			fmt.Fprintln(stderr, "network accepts at most one mode: lan or tailscale")
+			return 2
+		}
+		var paths Paths
+		var config Config
+		paths, err = resolvePaths()
+		if err == nil {
+			config, err = loadConfig(paths)
+		}
+		if err == nil && len(arguments) == 0 {
+			err = printStatus(stdout, status(paths, config), false)
+		}
+		if err == nil && len(arguments) == 1 {
+			err = setNetworkMode(paths, &config, arguments[0], stdout)
 		}
 	case "doctor":
 		flags := flag.NewFlagSet("doctor", flag.ContinueOnError)
@@ -250,26 +268,126 @@ func Run(arguments []string, version string, stdout, stderr io.Writer) int {
 }
 
 func runPairQR(ctx context.Context, config Config, arguments []string, stdout, stderr io.Writer) error {
+	options, err := parsePairOptions(arguments)
+	if err != nil {
+		return err
+	}
 	layout, err := resolveLayout()
 	if err != nil {
 		return err
 	}
 	lan := detectLANIPv4()
-	if lan == "" {
-		lan = "127.0.0.1"
+	mode := effectiveNetworkMode(config)
+	if options.Network != "" {
+		mode, err = parseNetworkMode(options.Network)
+		if err != nil {
+			return err
+		}
 	}
-	pairArguments := pairingArguments(config, lan, arguments)
+	var tailnet tailnetStatus
+	var clientName string
+	if mode == networkModeTailscale {
+		tailnet, err = detectTailnet()
+		if err != nil {
+			return err
+		}
+		peer, err := chooseTailnetPeer(tailnet, options.Device, os.Stdin, stdout, stdinIsTerminal())
+		if err != nil {
+			return err
+		}
+		clientName = peer.Name
+		fmt.Fprintf(stdout, "Tailscale device: %s (%s)\n", peer.Name, peer.IPv4)
+	}
+	origin, err := networkOrigin(mode, lan, tailnet, config.Ports.Gateway, options.Address)
+	if err != nil {
+		return err
+	}
+	pairArguments := pairingArguments(config, origin, clientName, options.PairQRArguments)
 	pair := exec.CommandContext(ctx, layout.PairQR, pairArguments...)
 	pair.Stdout, pair.Stderr, pair.Stdin = stdout, stderr, os.Stdin
 	return pair.Run()
 }
 
-func pairingArguments(config Config, lan string, arguments []string) []string {
+type pairOptions struct {
+	Network         string
+	Address         string
+	Device          string
+	PairQRArguments []string
+}
+
+func parsePairOptions(arguments []string) (pairOptions, error) {
+	options := pairOptions{}
+	for index := 0; index < len(arguments); index++ {
+		argument := arguments[index]
+		if argument == "--" {
+			options.PairQRArguments = append(options.PairQRArguments, arguments[index+1:]...)
+			break
+		}
+		name, value, matched := strings.Cut(argument, "=")
+		if name != "--network" && name != "--address" && name != "--device" {
+			options.PairQRArguments = append(options.PairQRArguments, argument)
+			continue
+		}
+		if !matched {
+			index++
+			if index >= len(arguments) {
+				return pairOptions{}, fmt.Errorf("%s requires a value", name)
+			}
+			value = arguments[index]
+		}
+		switch name {
+		case "--network":
+			options.Network = value
+		case "--address":
+			options.Address = value
+		case "--device":
+			options.Device = value
+		}
+	}
+	return options, nil
+}
+
+func stdinIsTerminal() bool {
+	info, err := os.Stdin.Stat()
+	return err == nil && info.Mode()&os.ModeCharDevice != 0
+}
+
+func pairingArguments(config Config, origin, clientName string, arguments []string) []string {
 	pairArguments := []string{
 		"--control-url", "http://127.0.0.1:" + strconv.Itoa(config.Ports.AuthControl),
-		"--origin", "http://" + lan + ":" + strconv.Itoa(config.Ports.Gateway),
+		"--origin", origin,
+	}
+	if clientName != "" {
+		pairArguments = append(pairArguments, "--name", clientName)
 	}
 	return append(pairArguments, arguments...)
+}
+
+func setNetworkMode(paths Paths, config *Config, value string, stdout io.Writer) error {
+	mode, err := parseNetworkMode(value)
+	if err != nil {
+		return err
+	}
+	lan := detectLANIPv4()
+	var tailnet tailnetStatus
+	if mode == networkModeTailscale {
+		tailnet, err = detectTailnet()
+		if err != nil {
+			return err
+		}
+	}
+	origin, err := networkOrigin(mode, lan, tailnet, config.Ports.Gateway, "")
+	if err != nil {
+		return err
+	}
+	config.NetworkMode = mode
+	if err := saveConfig(paths, *config); err != nil {
+		return err
+	}
+	fmt.Fprintf(stdout, "Network mode: %s\n", mode)
+	fmt.Fprintf(stdout, "Active URL: %s/\n", origin)
+	fmt.Fprintln(stdout, "Run codex-remote pair to generate a new one-time pairing link for this origin.")
+	return nil
 }
 
 func unexpectedArguments(stderr io.Writer, command string) int {
@@ -281,9 +399,10 @@ func printUsage(writer io.Writer) {
 	fmt.Fprintln(writer, `Codex Remote
 
 Usage:
-  codex-remote setup [--codex-binary PATH] [--workspace-root DIR ...] [--repair] [--no-start]
+  codex-remote setup [--codex-binary PATH] [--workspace-root DIR ...] [--network lan|tailscale] [--repair] [--no-start]
   codex-remote start | stop | restart | status [--json]
-  codex-remote pair [pairqr options]
+  codex-remote pair [--network lan|tailscale] [--address magicdns|ip] [--device NAME] [pairqr options]
+  codex-remote network [lan|tailscale]
   codex-remote doctor [--json]
   codex-remote migrate | backup
   codex-remote rollback --backup FILE --yes

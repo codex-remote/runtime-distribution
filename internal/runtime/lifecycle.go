@@ -22,6 +22,7 @@ import (
 type setupOptions struct {
 	CodexBinary    string
 	WorkspaceRoots []string
+	NetworkMode    string
 	Repair         bool
 	Start          bool
 }
@@ -81,6 +82,21 @@ func setup(ctx context.Context, version string, options setupOptions, stdout io.
 	if err != nil {
 		return err
 	}
+	networkMode := networkModeLAN
+	if hasExisting {
+		networkMode = effectiveNetworkMode(existing)
+	}
+	if strings.TrimSpace(options.NetworkMode) != "" {
+		networkMode, err = parseNetworkMode(options.NetworkMode)
+		if err != nil {
+			return err
+		}
+		if networkMode == networkModeTailscale {
+			if _, err := detectTailnet(); err != nil {
+				return err
+			}
+		}
+	}
 	ports := defaultPorts
 	if hasExisting {
 		ports = existing.Ports
@@ -124,6 +140,7 @@ func setup(ctx context.Context, version string, options setupOptions, stdout io.
 	}
 	config := Config{
 		SchemaVersion: configSchemaVersion, RuntimeVersion: version, InstalledAt: installedAt,
+		NetworkMode: networkMode,
 		CodexBinary: codex.Binary, CodexVersion: codex.Version, WorkspaceRoots: workspaceRoots,
 		Ports: ports, Toolchain: toolchain,
 	}
@@ -510,10 +527,23 @@ func stopServices(ctx context.Context, loaded []string) error {
 
 func printReady(stdout io.Writer, config Config) {
 	lan := detectLANIPv4()
-	if lan == "" {
-		lan = "127.0.0.1"
+	mode := effectiveNetworkMode(config)
+	var tailnet tailnetStatus
+	if mode == networkModeTailscale {
+		detected, err := detectTailnet()
+		if err != nil {
+			fmt.Fprintf(stdout, "Codex Remote is ready, but Tailscale is unavailable: %v\n", err)
+			fmt.Fprintln(stdout, "Run codex-remote network lan to use the local network instead.")
+			return
+		}
+		tailnet = detected
 	}
-	fmt.Fprintf(stdout, "Codex Remote is ready: http://%s:%d/\n", lan, config.Ports.Gateway)
+	origin, err := networkOrigin(mode, lan, tailnet, config.Ports.Gateway, "")
+	if err != nil {
+		fmt.Fprintf(stdout, "Codex Remote is ready, but the %s address is unavailable: %v\n", mode, err)
+		return
+	}
+	fmt.Fprintf(stdout, "Codex Remote is ready (%s): %s/\n", mode, origin)
 	fmt.Fprintln(stdout, "Run codex-remote pair to generate a one-time QR code.")
 }
 
@@ -553,14 +583,21 @@ func detectLANIPv4() string {
 }
 
 type statusReport struct {
-	Configured bool              `json:"configured"`
-	Version    string            `json:"version,omitempty"`
-	Services   map[string]string `json:"services"`
-	LANURL     string            `json:"lanUrl,omitempty"`
+	Configured   bool              `json:"configured"`
+	Version      string            `json:"version,omitempty"`
+	Services     map[string]string `json:"services"`
+	NetworkMode  NetworkMode       `json:"networkMode"`
+	ActiveURL    string            `json:"activeUrl,omitempty"`
+	LANURL       string            `json:"lanUrl,omitempty"`
+	TailnetURL   string            `json:"tailnetUrl,omitempty"`
+	MagicDNS     string            `json:"magicDns,omitempty"`
+	MagicDNSURL  string            `json:"magicDnsUrl,omitempty"`
+	NetworkError string            `json:"networkError,omitempty"`
 }
 
 func status(paths Paths, config Config) statusReport {
-	report := statusReport{Configured: true, Version: config.RuntimeVersion, Services: make(map[string]string)}
+	mode := effectiveNetworkMode(config)
+	report := statusReport{Configured: true, Version: config.RuntimeVersion, Services: make(map[string]string), NetworkMode: mode}
 	for _, service := range []string{runtimeService} {
 		state := "stopped"
 		if serviceLoaded(service) {
@@ -569,10 +606,27 @@ func status(paths Paths, config Config) statusReport {
 		report.Services[service] = state
 	}
 	lan := detectLANIPv4()
-	if lan == "" {
-		lan = "127.0.0.1"
+	if lan != "" {
+		report.LANURL = "http://" + net.JoinHostPort(lan, strconv.Itoa(config.Ports.Gateway)) + "/"
 	}
-	report.LANURL = "http://" + net.JoinHostPort(lan, strconv.Itoa(config.Ports.Gateway)) + "/"
+	tailnet, tailnetErr := detectTailnet()
+	if tailnetErr == nil {
+		report.TailnetURL = "http://" + net.JoinHostPort(tailnet.IPv4, strconv.Itoa(config.Ports.Gateway)) + "/"
+		report.MagicDNS = tailnet.DNSName
+		if tailnet.MagicDNSEnabled && tailnet.MagicDNSName != "" {
+			report.MagicDNSURL = "http://" + net.JoinHostPort(tailnet.MagicDNSName, strconv.Itoa(config.Ports.Gateway)) + "/"
+		}
+	}
+	if mode == networkModeLAN {
+		report.ActiveURL = report.LANURL
+	} else if tailnetErr != nil {
+		report.NetworkError = tailnetErr.Error()
+	} else {
+		report.ActiveURL = report.MagicDNSURL
+		if report.ActiveURL == "" {
+			report.ActiveURL = report.TailnetURL
+		}
+	}
 	return report
 }
 
@@ -583,9 +637,25 @@ func printStatus(stdout io.Writer, report statusReport, asJSON bool) error {
 		return encoder.Encode(report)
 	}
 	fmt.Fprintf(stdout, "Runtime: %s\n", report.Version)
+	fmt.Fprintf(stdout, "Network: %s\n", report.NetworkMode)
 	for _, service := range []string{runtimeService} {
 		fmt.Fprintf(stdout, "%-10s %s\n", service+":", report.Services[service])
 	}
 	fmt.Fprintf(stdout, "LAN URL: %s\n", report.LANURL)
+	if report.TailnetURL != "" {
+		fmt.Fprintf(stdout, "Tailnet URL: %s\n", report.TailnetURL)
+	}
+	if report.MagicDNS != "" {
+		fmt.Fprintf(stdout, "MagicDNS: %s\n", report.MagicDNS)
+	}
+	if report.MagicDNSURL != "" {
+		fmt.Fprintf(stdout, "MagicDNS URL: %s\n", report.MagicDNSURL)
+	}
+	if report.ActiveURL != "" {
+		fmt.Fprintf(stdout, "Active URL: %s\n", report.ActiveURL)
+	}
+	if report.NetworkError != "" {
+		fmt.Fprintf(stdout, "Network error: %s\n", report.NetworkError)
+	}
 	return nil
 }

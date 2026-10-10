@@ -49,6 +49,47 @@ copyable pairing URL. The same terminal QR and URL are emitted after
 `codex-remote start` and `codex-remote restart`. Use `--terminal=false
 --output PATH` explicitly when a PNG is preferred.
 
+### Access network
+
+The Runtime keeps Relay, Auth Control, PostgreSQL, Valkey, Mac Agent, Codex,
+and project files on the Mac. Its Gateway can advertise either of two access
+origins without moving data or restarting the stack:
+
+```bash
+# Same trusted local network. This remains the default for existing installs.
+codex-remote network lan
+
+# Private Tailscale network, for access away from home or office.
+codex-remote network tailscale
+```
+
+Tailscale mode requires the official macOS Tailscale client to be installed,
+connected, and signed in. The CLI finds either `tailscale` in `PATH` or the
+executable bundled in `/Applications/Tailscale.app`. Pairing defaults to the
+Mac's stable MagicDNS short name and can fall back to its Tailnet IPv4 address.
+
+```bash
+codex-remote status --json
+codex-remote doctor --json
+codex-remote pair --network tailscale
+codex-remote pair --network tailscale --address ip
+```
+
+The pairing command verifies that at least one iPhone or iPad is online in the
+same Tailnet. It automatically selects the only online iOS device. If several
+are online, an interactive terminal presents a numbered choice; scripts must
+use `--device NAME_OR_IP`. The selection names and confirms the intended
+client, while the one-time Runtime pairing grant remains the authorization
+boundary and is not cryptographically bound to the Tailscale device.
+
+Changing the mode changes the advertised URL and newly generated pairing
+links. Devices paired through a different origin must pair again because
+browser cookies, IndexedDB, and native credentials are scoped to that origin.
+The Gateway still listens on the configured host port so LAN access remains a
+recovery path; Tailscale access control should restrict the Gateway port to the
+owner's devices. Tailscale Funnel and public router port forwarding are not
+supported access modes.
+
 Homebrew 6 requires explicit trust before loading a non-official Formula. This
 security decision cannot be embedded in the Formula itself. Homebrew versions
 without Tap Trust ignore the extra command.
